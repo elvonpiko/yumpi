@@ -6,13 +6,21 @@ The control plane is one Go binary in a container. The host keeps Docker, Mullva
 
 ## Install
 
-On a fresh Raspberry Pi OS or Debian system, with the Pi already on the wired network:
+`install.sh` is the setup for a vanilla Raspberry Pi OS or Debian machine. The Pi needs ethernet and a working internet connection before you start. Copy this repository onto the Pi, then:
 
 ```sh
 sudo ./install.sh
 ```
 
-The installer asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`. These variables skip the prompts:
+The script installs Docker if it is missing, installs Mullvad if it is missing, builds the YumPi image, and starts the container. It asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`.
+
+After it finishes:
+
+1. Log the host into Mullvad once: `mullvad account login`. The installer never sees the account.
+2. Join the Wi-Fi it printed and confirm a client has internet.
+3. Turn DHCP off on the upstream router when the Pi should own the wired LAN. Leave the router itself on. The Pi still uses it as the upstream link.
+
+These variables skip the prompts:
 
 - `YUMPI_SSID`
 - `YUMPI_WIFI_PASSPHRASE`
