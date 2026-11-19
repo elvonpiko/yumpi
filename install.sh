@@ -255,7 +255,7 @@ log "Starting YumPi"
 DOCKER_BUILDKIT=0 docker compose -f "$ROOT/compose.yml" up -d --force-recreate --no-build
 ok=0
 for _ in $(seq 1 40); do
-  if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
+  if curl -kfsS https://127.0.0.1:8443/healthz >/dev/null; then
     ok=1
     break
   fi
@@ -272,7 +272,7 @@ lan_ip="$(awk '
     exit
   }
 ' /etc/yumpi/config.toml)"
-printf '\nYumPi is up: http://%s:8080\n' "$lan_ip"
+printf '\nYumPi is up: https://%s:8443\n' "$lan_ip"
 if [[ "$GENERATED_ADMIN" == 1 ]]; then
   printf 'Dashboard password: %s\n' "$YUMPI_ADMIN_PASSWORD"
 fi

@@ -19,7 +19,7 @@ services:
       - /etc/mullvad-vpn:/etc/mullvad-vpn
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "curl", "-kfsS", "https://127.0.0.1:8443/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5

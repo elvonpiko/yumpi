@@ -28,7 +28,7 @@ These variables skip the prompts:
 - `YUMPI_ADMIN_PASSWORD`
 - `YUMPI_COUNTRY` (default `US`)
 
-The dashboard is `http://<pi>:8080`. It is password protected and not exposed beyond the networks the Pi is on. Do not forward that port from the internet.
+The dashboard is `https://<pi>:8443`. It is password protected and speaks HTTPS only. The browser asks you to trust the Pi's certificate once. Do not forward that port from the internet.
 
 Mullvad has to be logged in once on the host (`mullvad account login`). The installer does not see or store the account.
 

@@ -59,19 +59,14 @@ func main() {
 	go d.Run(ctx)
 	handler := api.New(d, web.FS, log)
 	httpsAddr := httpsListen(cfg.Listen)
-	if cert, key, err := api.EnsureCert(filepath.Join(filepath.Dir(cfg.Paths.State), "tls"), certHosts(cfg)); err != nil {
+	cert, key, err := api.EnsureCert(filepath.Join(filepath.Dir(cfg.Paths.State), "tls"), certHosts(cfg))
+	if err != nil {
 		log.Error("https certificate", "err", err)
-	} else {
-		go func() {
-			log.Info("listening", "addr", httpsAddr, "tls", true)
-			if err := api.ServeTLS(ctx, httpsAddr, cert, key, handler); err != nil && ctx.Err() == nil {
-				log.Error("https", "err", err)
-			}
-		}()
+		os.Exit(1)
 	}
-	log.Info("listening", "addr", cfg.Listen)
-	if err := api.Serve(ctx, cfg.Listen, handler); err != nil {
-		log.Error("http", "err", err)
+	log.Info("listening", "addr", httpsAddr, "tls", true)
+	if err := api.ServeTLS(ctx, httpsAddr, cert, key, handler); err != nil {
+		log.Error("https", "err", err)
 		os.Exit(1)
 	}
 }
