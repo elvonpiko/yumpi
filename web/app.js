@@ -1,0 +1,318 @@
+const $ = (id) => document.getElementById(id);
+let data = null;
+let relays = [];
+let busy = false;
+let timer = 0;
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body == null ? undefined : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let payload = null;
+  if (text) {
+    try { payload = JSON.parse(text); } catch { payload = null; }
+  }
+  if (res.status === 401 && path !== "/api/login") {
+    showLogin();
+    throw new Error("Sign in.");
+  }
+  if (!res.ok) throw new Error((payload && payload.error) || "Request failed");
+  return payload;
+}
+
+function showLogin() {
+  $("boot").hidden = true;
+  $("login").hidden = false;
+  $("app").hidden = true;
+  clearInterval(timer);
+}
+
+function showApp() {
+  $("boot").hidden = true;
+  $("login").hidden = true;
+  $("app").hidden = false;
+}
+
+function flash(msg) {
+  const n = $("flash");
+  n.textContent = msg || "";
+}
+
+function dotClass(d) {
+  if (d.blocked) return "r";
+  if (d.online) return "";
+  if (d.lease && d.lease !== "—" && d.lease !== "Expired") return "w";
+  return "o";
+}
+
+function statusLabel(d) {
+  if (d.blocked) return "Blocked";
+  if (d.online) return "Online";
+  if (d.lease && d.lease !== "—" && d.lease !== "Expired") return "Idle";
+  return "Offline";
+}
+
+function renderDevices() {
+  const q = ($("q").value || "").toLowerCase();
+  const body = $("rows");
+  body.replaceChildren();
+  const list = (data.devices || []).filter((d) => (d.name + " " + d.ip + " " + d.mac).toLowerCase().includes(q));
+  if (!list.length) {
+    const tr = document.createElement("tr");
+    const td = el("td", "empty", data.devices && data.devices.length ? "No matches." : "No devices yet. Join the Wi-Fi, or plug into Ethernet.");
+    td.colSpan = 6;
+    tr.append(td);
+    body.append(tr);
+    return;
+  }
+  for (const d of list) {
+    const tr = document.createElement("tr");
+    tr.append(el("td", "", d.name), el("td", "mono", d.ip), el("td", "mono", d.mac), el("td", "mono", d.lease || "—"));
+    const route = document.createElement("td");
+    const sw = document.createElement("input");
+    sw.className = "sw";
+    sw.type = "checkbox";
+    sw.checked = !!d.vpn;
+    sw.setAttribute("aria-label", (d.vpn ? "Mullvad" : "Direct") + " for " + d.name);
+    sw.addEventListener("change", async () => {
+      busy = true;
+      try {
+        await api("/api/device/vpn", { ip: d.ip, enabled: sw.checked });
+        flash(sw.checked ? d.ip + " is on Mullvad" : d.ip + " is direct");
+        await refresh();
+      } catch (err) {
+        sw.checked = !sw.checked;
+        flash(err.message);
+      } finally {
+        busy = false;
+      }
+    });
+    route.append(sw);
+    const status = document.createElement("td");
+    const st = el("span", "st");
+    st.append(el("i", "dot " + dotClass(d)), document.createTextNode(statusLabel(d)));
+    status.append(st);
+    const actions = el("div", "row-actions");
+    if (d.source === "wifi") {
+      const b = el("button", d.blocked ? "btn mini" : "btn o mini", d.blocked ? "Unblock" : "Block");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        busy = true;
+        try {
+          await api("/api/device/block", { mac: d.mac, blocked: !d.blocked });
+          flash(d.blocked ? "Unblocked " + d.mac : "Blocked " + d.mac);
+          await refresh();
+        } catch (err) {
+          flash(err.message);
+        } finally {
+          busy = false;
+        }
+      });
+      actions.append(b);
+    }
+    if (d.reserved) {
+      const b = el("button", "btn o mini", "Forget");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        busy = true;
+        try {
+          await api("/api/reservation/delete", { mac: d.mac });
+          flash("Forgot " + d.mac);
+          await refresh();
+        } catch (err) {
+          flash(err.message);
+        } finally {
+          busy = false;
+        }
+      });
+      actions.append(b);
+    }
+    if (actions.childNodes.length) status.append(actions);
+    tr.append(route, status);
+    body.append(tr);
+  }
+}
+
+function setText(id, value) {
+  const n = $(id);
+  const next = value || "—";
+  if (n.textContent !== next) n.textContent = next;
+}
+
+function render() {
+  const live = $("live");
+  live.querySelector("i").className = data.mullvad.connected ? "" : "dot r";
+  live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : "Direct";
+  setText("stat-online", String(data.online));
+  setText("stat-leases", String(data.leases_used));
+  setText("stat-lease-label", "Leases of " + data.pool_size);
+  setText("stat-expiring", String(data.expiring));
+  const pct = data.pool_size ? Math.round((data.leases_used / data.pool_size) * 100) : 0;
+  setText("pool-label", data.dhcp_enabled ? "Address pool · " + pct + "% used" : "Address pool · off");
+  $("pool-bar").style.width = (data.dhcp_enabled ? pct : 0) + "%";
+  $("dhcp-sw").checked = !!data.dhcp_enabled;
+  const w = data.pools.wifi, l = data.pools.lan;
+  setText("wifi-range", w.start + " – " + w.end);
+  setText("wifi-gw", w.gateway);
+  setText("lan-range", l.start + " – " + l.end);
+  setText("lan-gw", l.gateway);
+  setText("dns", data.dns.tunnel);
+  setText("lease", w.lease);
+  setText("vpn-state", data.mullvad.connected ? "Connected" : "Disconnected");
+  setText("vpn-relay", data.mullvad.relay);
+  setText("vpn-loc", data.mullvad.location);
+  setText("vpn-ip", data.mullvad.exit_ip);
+  $("vpn-btn").textContent = data.mullvad.connected ? "Disconnect" : "Connect";
+  const ssid = $("ssid");
+  if (document.activeElement !== ssid) ssid.value = data.wifi.ssid;
+  $("ap-copy").textContent = data.wifi.ssid + " · channel " + data.wifi.channel + " · " + data.wifi.country + ". A new password reconnects everyone.";
+  $("foot").textContent = "YumPi · " + data.model + " · up " + data.uptime;
+  if (!busy) renderDevices();
+}
+
+async function refresh() {
+  data = await api("/api/status");
+  render();
+}
+
+function fillCities() {
+  const code = $("country").value;
+  const city = $("city");
+  city.replaceChildren();
+  city.append(new Option("Best in country", ""));
+  const found = relays.find((c) => c.code === code);
+  if (!found) return;
+  for (const c of found.cities || []) city.append(new Option(c.name, c.code));
+}
+
+async function loadRelays() {
+  try {
+    const payload = await api("/api/relays");
+    relays = payload.countries || [];
+    const country = $("country");
+    country.replaceChildren();
+    for (const c of relays) country.append(new Option(c.name, c.code));
+    const us = relays.find((c) => c.code === "us");
+    if (us) country.value = "us";
+    fillCities();
+  } catch (err) {
+    $("vpn-err").textContent = err.message;
+  }
+}
+
+$("login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("login-err").textContent = "";
+  try {
+    await api("/api/login", { password: new FormData(ev.target).get("password") });
+    showApp();
+    await refresh();
+    loadRelays();
+    timer = setInterval(() => { refresh().catch(() => {}); }, 5000);
+  } catch (err) {
+    $("login-err").textContent = err.message;
+  }
+});
+
+$("signout").addEventListener("click", async () => {
+  try { await api("/api/logout", {}); } catch { /* already signed out */ }
+  showLogin();
+});
+
+$("q").addEventListener("input", () => { if (data) renderDevices(); });
+
+document.querySelectorAll("[data-nav]").forEach((a) => {
+  a.addEventListener("click", () => {
+    document.querySelectorAll("[data-nav]").forEach((n) => n.classList.remove("on"));
+    a.classList.add("on");
+  });
+});
+
+$("dhcp-sw").addEventListener("change", async () => {
+  const on = $("dhcp-sw").checked;
+  try {
+    await api("/api/dhcp", { enabled: on });
+    flash(on ? "DHCP is on" : "DHCP is off");
+    await refresh();
+  } catch (err) {
+    $("dhcp-sw").checked = !on;
+    flash(err.message);
+  }
+});
+
+$("reserve").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("reserve-err").textContent = "";
+  const f = new FormData(ev.target);
+  try {
+    await api("/api/reservation", { mac: f.get("mac"), ip: f.get("ip"), name: f.get("name") });
+    ev.target.reset();
+    flash("Reservation saved");
+    await refresh();
+  } catch (err) {
+    $("reserve-err").textContent = err.message;
+  }
+});
+
+$("vpn-btn").addEventListener("click", async () => {
+  $("vpn-err").textContent = "";
+  const action = data && data.mullvad.connected ? "disconnect" : "connect";
+  try {
+    await api("/api/mullvad", { action });
+    flash(action === "connect" ? "Connecting" : "Disconnecting");
+    setTimeout(() => refresh().catch(() => {}), 1200);
+  } catch (err) {
+    $("vpn-err").textContent = err.message;
+  }
+});
+
+$("country").addEventListener("change", fillCities);
+
+$("loc-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("vpn-err").textContent = "";
+  const country = $("country").value;
+  const city = $("city").value;
+  if (!country) return;
+  const location = city ? country + " " + city : country;
+  try {
+    await api("/api/mullvad", { action: "location", location });
+    flash("Switching exit");
+    setTimeout(() => refresh().catch(() => {}), 1500);
+  } catch (err) {
+    $("vpn-err").textContent = err.message;
+  }
+});
+
+$("wifi-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("wifi-err").textContent = "";
+  const f = new FormData(ev.target);
+  try {
+    await api("/api/wifi", { ssid: f.get("ssid"), passphrase: f.get("passphrase") });
+    ev.target.querySelector("[name=passphrase]").value = "";
+    flash("Wi-Fi updated");
+    await refresh();
+  } catch (err) {
+    $("wifi-err").textContent = err.message;
+  }
+});
+
+refresh().then(() => {
+  showApp();
+  loadRelays();
+  timer = setInterval(() => { refresh().catch(() => {}); }, 5000);
+}).catch((err) => {
+  if (err.message === "Sign in.") return;
+  $("boot").textContent = err.message;
+});
