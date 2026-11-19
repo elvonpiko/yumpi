@@ -1,0 +1,347 @@
+package devices
+
+import (
+	"bufio"
+	"fmt"
+	"net/netip"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"yumpi/internal/config"
+	"yumpi/internal/state"
+)
+
+// Device is one client the dashboard can show or steer.
+type Device struct {
+	IP       string `json:"ip"`
+	MAC      string `json:"mac"`
+	Name     string `json:"name"`
+	Source   string `json:"source"`
+	Online   bool   `json:"online"`
+	VPN      bool   `json:"vpn"`
+	Blocked  bool   `json:"blocked"`
+	Lease    string `json:"lease"`
+	Reserved bool   `json:"reserved"`
+}
+
+// Snapshot is the device list plus the figures for the three stat blocks.
+type Snapshot struct {
+	Devices    []Device
+	Online     int
+	LeasesUsed int
+	PoolSize   int
+	Expiring   int
+	WiFiUsed   int
+	LANUsed    int
+}
+
+type lease struct {
+	Expiry time.Time
+	MAC    string
+	IP     netip.Addr
+	Name   string
+}
+
+// Assemble merges DHCP leases, Wi-Fi stations, and neighbors into one list.
+func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstream netip.Addr, leases, stations, neigh string, st state.State) Snapshot {
+	bypass := setOf(st.BypassIPs)
+	blocked := setOf(st.BlockedMACs)
+	reservedByMAC := map[string]state.Reservation{}
+	reservedByIP := map[string]state.Reservation{}
+	for _, r := range st.Reservations {
+		reservedByMAC[r.MAC] = r
+		reservedByIP[r.IP] = r
+	}
+	stationMAC := ParseStations(stations)
+	neighbors := ParseNeigh(neigh)
+
+	byIP := map[string]*Device{}
+	var snap Snapshot
+	snap.PoolSize = config.PoolSize(wifi.DHCPStart, wifi.DHCPEnd) + config.PoolSize(lan.DHCPStart, lan.DHCPEnd)
+
+	for _, l := range ParseLeases(leases) {
+		if !wifi.Prefix.Contains(l.IP) && !lan.Prefix.Contains(l.IP) {
+			continue
+		}
+		if skipAddr(l.IP, self, upstream) {
+			continue
+		}
+		source := "lan"
+		if wifi.Prefix.Contains(l.IP) {
+			source = "wifi"
+			snap.WiFiUsed++
+		} else {
+			snap.LANUsed++
+		}
+		snap.LeasesUsed++
+		expiring := !l.Expiry.IsZero() && l.Expiry.After(now) && l.Expiry.Sub(now) <= time.Hour
+		if expiring {
+			snap.Expiring++
+		}
+		name := cleanName(l.Name)
+		res, isRes := reservedByMAC[l.MAC]
+		if name == "" && isRes {
+			name = res.Name
+		}
+		if name == "" {
+			name = fallbackName(source)
+		}
+		online := false
+		if source == "wifi" {
+			_, onStation := stationMAC[l.MAC]
+			online = onStation || neighborUp(neighbors[l.IP])
+		} else {
+			online = neighborUp(neighbors[l.IP])
+		}
+		d := &Device{
+			IP: l.IP.String(), MAC: l.MAC, Name: name, Source: source, Online: online,
+			VPN: !has(bypass, l.IP.String()), Blocked: has(blocked, l.MAC),
+			Lease: formatLease(l.Expiry, now, false), Reserved: isRes || hasIP(reservedByIP, l.IP.String()),
+		}
+		byIP[d.IP] = d
+	}
+
+	for _, r := range st.Reservations {
+		if _, ok := byIP[r.IP]; ok {
+			continue
+		}
+		ip, err := netip.ParseAddr(r.IP)
+		if err != nil {
+			continue
+		}
+		source := "lan"
+		if wifi.Prefix.Contains(ip) {
+			source = "wifi"
+		}
+		name := r.Name
+		if name == "" {
+			name = fallbackName(source)
+		}
+		byIP[r.IP] = &Device{
+			IP: r.IP, MAC: r.MAC, Name: name, Source: source,
+			Online: neighborUp(neighbors[ip]) || (source == "wifi" && has(stationMAC, r.MAC)),
+			VPN:    !has(bypass, r.IP), Blocked: has(blocked, r.MAC),
+			Lease: "Reserved", Reserved: true,
+		}
+	}
+
+	for ip, n := range neighbors {
+		if !neighborUp(n) || skipAddr(ip, self, upstream) {
+			continue
+		}
+		if !wifi.Prefix.Contains(ip) && !lan.Prefix.Contains(ip) {
+			continue
+		}
+		if _, ok := byIP[ip.String()]; ok {
+			continue
+		}
+		source := "lan"
+		if wifi.Prefix.Contains(ip) {
+			source = "wifi"
+		}
+		mac := n.MAC
+		name := fallbackName(source)
+		if r, ok := reservedByMAC[mac]; ok && r.Name != "" {
+			name = r.Name
+		}
+		byIP[ip.String()] = &Device{
+			IP: ip.String(), MAC: mac, Name: name, Source: source, Online: true,
+			VPN: !has(bypass, ip.String()), Blocked: has(blocked, mac),
+			Lease: "—", Reserved: hasIP(reservedByIP, ip.String()),
+		}
+	}
+
+	for _, d := range byIP {
+		if d.Online {
+			snap.Online++
+		}
+		snap.Devices = append(snap.Devices, *d)
+	}
+	sort.Slice(snap.Devices, func(i, j int) bool {
+		if snap.Devices[i].Online != snap.Devices[j].Online {
+			return snap.Devices[i].Online
+		}
+		return lessIP(snap.Devices[i].IP, snap.Devices[j].IP)
+	})
+	return snap
+}
+
+func fallbackName(source string) string {
+	if source == "wifi" {
+		return "Wi-Fi device"
+	}
+	return "Wired device"
+}
+
+func cleanName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "*" || name == "" {
+		return ""
+	}
+	return name
+}
+
+func formatLease(exp time.Time, now time.Time, reserved bool) string {
+	if exp.IsZero() {
+		if reserved {
+			return "Reserved"
+		}
+		return "—"
+	}
+	d := exp.Sub(now)
+	if d <= 0 {
+		return "Expired"
+	}
+	return FormatRemain(d)
+}
+
+// FormatRemain renders a duration the way the dashboard lease column does.
+func FormatRemain(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	mins := d / time.Minute
+	if hours > 0 {
+		return fmt.Sprintf("%dh %02dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm", mins)
+}
+
+// FormatUptime renders how long the control plane has been up.
+func FormatUptime(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	days := d / (24 * time.Hour)
+	d -= days * 24 * time.Hour
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	mins := d / time.Minute
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh", days, hours)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %02dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm", mins)
+}
+
+type Neigh struct {
+	MAC   string
+	State string
+}
+
+// ParseLeases reads a dnsmasq lease file.
+func ParseLeases(raw string) []lease {
+	var out []lease
+	sc := bufio.NewScanner(strings.NewReader(raw))
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) < 4 {
+			continue
+		}
+		var exp time.Time
+		var sec int64
+		if _, err := fmt.Sscan(f[0], &sec); err == nil && sec > 0 {
+			exp = time.Unix(sec, 0)
+		}
+		ip, err := netip.ParseAddr(f[2])
+		if err != nil {
+			continue
+		}
+		out = append(out, lease{Expiry: exp, MAC: strings.ToLower(f[1]), IP: ip, Name: f[3]})
+	}
+	return out
+}
+
+var stationRE = regexp.MustCompile(`(?i)Station ([0-9a-f:]{17})`)
+
+// ParseStations returns MACs currently associated to the AP.
+func ParseStations(raw string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, m := range stationRE.FindAllStringSubmatch(raw, -1) {
+		out[strings.ToLower(m[1])] = struct{}{}
+	}
+	return out
+}
+
+// ParseNeigh reads `ip -4 neigh`.
+func ParseNeigh(raw string) map[netip.Addr]Neigh {
+	out := map[netip.Addr]Neigh{}
+	for _, line := range strings.Split(raw, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		ip, err := netip.ParseAddr(f[0])
+		if err != nil {
+			continue
+		}
+		n := Neigh{State: f[len(f)-1]}
+		for i := 0; i < len(f)-1; i++ {
+			if f[i] == "lladdr" && i+1 < len(f) {
+				n.MAC = strings.ToLower(f[i+1])
+			}
+		}
+		out[ip] = n
+	}
+	return out
+}
+
+func neighborUp(n Neigh) bool {
+	switch n.State {
+	case "REACHABLE", "STALE", "DELAY", "PROBE", "PERMANENT":
+		return n.MAC != ""
+	default:
+		return false
+	}
+}
+
+func skipAddr(ip netip.Addr, self []netip.Addr, upstream netip.Addr) bool {
+	if ip == upstream {
+		return true
+	}
+	for _, s := range self {
+		if ip == s {
+			return true
+		}
+	}
+	return false
+}
+
+func setOf(in []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for _, v := range in {
+		out[v] = struct{}{}
+	}
+	return out
+}
+
+func has(m map[string]struct{}, k string) bool {
+	_, ok := m[k]
+	return ok
+}
+
+func hasIP(m map[string]state.Reservation, ip string) bool {
+	_, ok := m[ip]
+	return ok
+}
+
+func lessIP(a, b string) bool {
+	aa, aerr := netip.ParseAddr(a)
+	bb, berr := netip.ParseAddr(b)
+	if aerr != nil || berr != nil {
+		return a < b
+	}
+	ab, bb4 := aa.As4(), bb.As4()
+	for i := 0; i < 4; i++ {
+		if ab[i] != bb4[i] {
+			return ab[i] < bb4[i]
+		}
+	}
+	return false
+}
