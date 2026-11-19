@@ -31,6 +31,7 @@ func TestRenderMarksBypassAfterDNAT(t *testing.T) {
 	}
 	for _, want := range []string{
 		"priority -90",
+		"add chain inet yumpi exclude",
 		"ip saddr @bypass ip daddr 10.64.0.1 udp dport 53 dnat ip to 1.1.1.1:53",
 		`oifname "wg0-mullvad"`,
 		"meta mark set 0x6d6f6c65",

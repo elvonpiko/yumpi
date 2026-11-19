@@ -61,12 +61,13 @@ func Render(in Input) (string, error) {
 	fmt.Fprintf(&b, "add rule inet yumpi dstnat ip saddr %s ip daddr %s tcp dport 53 dnat ip to %s:53\n", who, in.TunnelDNS, in.DirectDNS)
 
 	// -90 is after dstnat (-100) and after Mullvad's own prerouting (-199).
-	b.WriteString("add chain inet yumpi mark { type filter hook prerouting priority -90 ; policy accept ; }\n")
+	// The chain cannot be named "mark": that word is an nftables keyword.
+	b.WriteString("add chain inet yumpi exclude { type filter hook prerouting priority -90 ; policy accept ; }\n")
 	markWho := "@bypass"
 	if !in.VPNUp {
 		markWho = "@clients"
 	}
-	fmt.Fprintf(&b, "add rule inet yumpi mark ip saddr %s ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } ct mark set 0x00000f41 meta mark set 0x6d6f6c65\n", markWho)
+	fmt.Fprintf(&b, "add rule inet yumpi exclude ip saddr %s ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } ct mark set 0x00000f41 meta mark set 0x6d6f6c65\n", markWho)
 
 	b.WriteString("add chain inet yumpi srcnat { type nat hook postrouting priority srcnat ; policy accept ; }\n")
 	if in.VPNUp && in.VPNIface != "" {
