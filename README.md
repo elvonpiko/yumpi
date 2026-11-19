@@ -18,7 +18,8 @@ After it finishes:
 
 1. Log the host into Mullvad once: `mullvad account login`. The installer never sees the account.
 2. Join the Wi-Fi it printed and confirm a client has internet.
-3. Turn DHCP off on the upstream router when the Pi should own the wired LAN. Leave the router itself on. The Pi still uses it as the upstream link.
+3. Give the Pi a fixed address on its ethernet port, for example `10.23.45.2/24` with gateway `10.23.45.1`. Set that on the Pi. A reservation in the router's DHCP page only works while the router's DHCP is still on.
+4. Turn DHCP off on the upstream router when the Pi should own the wired LAN. Leave the router itself on. The Pi still uses it as the upstream link. Wired computers should reconnect so they take an address from the Pi.
 
 These variables skip the prompts:
 
