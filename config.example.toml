@@ -1,0 +1,38 @@
+# Written by `yumpi init-config` or ./install.sh. Do not commit a real copy.
+listen = ":8080"
+model = "Raspberry Pi 5"
+
+[auth]
+password_hash = ""
+
+[wifi]
+interface = "wlan0"
+ssid = "YumPi"
+passphrase = ""
+country = "US"
+channel = 36
+address = "10.23.46.1/24"
+dhcp_start = "10.23.46.50"
+dhcp_end = "10.23.46.200"
+lease = "12h"
+
+[lan]
+interface = "eth0"
+address = "10.23.45.2/24"
+dhcp_start = "10.23.45.100"
+dhcp_end = "10.23.45.200"
+lease = "12h"
+upstream = "10.23.45.1"
+
+[dns]
+tunnel = "10.64.0.1"
+direct = "1.1.1.1"
+
+[mullvad]
+interface = "wg0-mullvad"
+chroot = ""
+
+[paths]
+state = "/var/lib/yumpi/state.json"
+run = "/run/yumpi"
+leases = "/var/lib/yumpi/leases"
