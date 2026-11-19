@@ -50,7 +50,7 @@ func TestLoginCookieAndDevicePolicy(t *testing.T) {
 		if page.StatusCode != 200 || len(body) == 0 {
 			t.Fatalf("%s -> %d (%d bytes)", path, page.StatusCode, len(body))
 		}
-		if path == "/" && !strings.Contains(string(body), "Your network, simply.") {
+		if path == "/" && !strings.Contains(string(body), "This network") {
 			t.Fatal("dashboard markup missing")
 		}
 	}

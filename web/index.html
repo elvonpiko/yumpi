@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#ebe7e4">
+<meta name="theme-color" content="#ffffff">
 <title>YumPi</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/favicon.svg">
@@ -13,22 +13,27 @@
 <body>
 <svg width="0" height="0" hidden aria-hidden="true">
   <symbol id="mark" viewBox="0 0 32 32">
-    <rect x="2.2" y="2.2" width="27.6" height="27.6" rx="8" fill="none" stroke="#c51a4a" stroke-width="2.4"/>
-    <circle cx="11" cy="16" r="2.15" fill="#c51a4a"/>
-    <path d="M14.4 16H22.2" stroke="#c51a4a" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="M18.7 12.5 22.6 16 18.7 19.5" fill="none" stroke="#c51a4a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#c51a4a">
+      <circle cx="16" cy="10.2" r="3.05"/>
+      <circle cx="10.6" cy="14.8" r="3.05"/>
+      <circle cx="21.4" cy="14.8" r="3.05"/>
+      <circle cx="12.8" cy="20.6" r="3.05"/>
+      <circle cx="19.2" cy="20.6" r="3.05"/>
+    </g>
+    <path d="M17.6 7.4c1.8-.7 3.1-2 3.6-3.6" fill="none" stroke="#c51a4a" stroke-width="1.5" stroke-linecap="round"/>
   </symbol>
 </svg>
 <p id="boot" class="boot">Loading…</p>
 
 <div id="login" hidden>
   <header class="nav"><div class="in">
-    <a class="brand" href="#top"><svg><use href="#mark"/></svg><span>Yum<b>pi</b></span></a>
+    <a class="brand" href="#top"><svg><use href="#mark"/></svg><span>YumPi</span></a>
   </div></header>
   <main class="in">
     <div class="head">
-      <h1>Sign in.</h1>
-      <p>The dashboard on this Pi is locked. The password was printed once, when YumPi was installed.</p>
+      <p class="kicker">Dashboard</p>
+      <h1>Sign in</h1>
+      <p>Use the password that was printed when YumPi was installed.</p>
       <form id="login-form" class="stack">
         <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
         <div><button class="btn" type="submit">Continue</button></div>
@@ -40,7 +45,7 @@
 
 <div id="app" hidden>
   <header class="nav"><div class="in">
-    <a class="brand" href="#overview"><svg><use href="#mark"/></svg><span>Yum<b>pi</b></span></a>
+    <a class="brand" href="#overview"><svg><use href="#mark"/></svg><span>YumPi</span></a>
     <nav>
       <a class="on" href="#overview" data-nav="overview">Overview</a>
       <a href="#devices" data-nav="devices">Devices</a>
@@ -57,32 +62,41 @@
 
     <div id="page-overview" class="page">
       <div class="head">
-        <h1>Your network, simply.</h1>
-        <p>See every device, choose what goes through Mullvad, and keep DHCP running from one Raspberry Pi.</p>
+        <p class="kicker">Overview</p>
+        <h1>This network</h1>
+        <p>Who is online, and whether their traffic goes through Mullvad.</p>
       </div>
+      <p class="warn" id="ov-warn" hidden>This Mullvad server is obfuscated, so sites can feel slow. Pick another city under Settings.</p>
       <div class="stats">
         <div><b id="stat-online">—</b><small>Devices online</small></div>
         <div><b id="stat-leases">—</b><small id="stat-lease-label">Leases</small></div>
         <div><b id="stat-expiring">—</b><small>Expiring soon</small></div>
       </div>
+      <dl class="kv now">
+        <dt>Relay</dt><dd id="ov-relay">—</dd>
+        <dt>Location</dt><dd id="ov-loc">—</dd>
+        <dt>Exit</dt><dd id="ov-exit">—</dd>
+      </dl>
     </div>
 
     <div id="page-devices" class="page" hidden>
       <div class="head">
-        <h1>Devices.</h1>
-        <p>Only devices connected to YumPi right now. On sends that device through Mullvad. Off sends it out through your normal internet connection.</p>
+        <p class="kicker">Devices</p>
+        <h1>Connected now</h1>
+        <p>On sends a device through Mullvad. Off uses your normal internet connection. YumPi remembers the choice for that device.</p>
       </div>
-      <div class="hd"><h2>On the network</h2><input id="q" placeholder="Search" aria-label="Search devices"></div>
+      <div class="hd"><h2>Online</h2><input id="q" placeholder="Search" aria-label="Search devices"></div>
       <div class="tw"><table>
-        <thead><tr><th>Name</th><th>IP address</th><th>MAC</th><th>Lease</th><th>Route</th><th>Status</th></tr></thead>
+        <thead><tr><th>Name</th><th>IP address</th><th>MAC</th><th>Use</th><th>Lease</th><th>Route</th><th>Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
     </div>
 
     <div id="page-dhcp" class="page" hidden>
       <div class="head">
-        <h1>DHCP.</h1>
-        <p>Hand out addresses on the access point and the wired LAN, or pin a device to one.</p>
+        <p class="kicker">DHCP</p>
+        <h1>Addresses</h1>
+        <p>YumPi gives out addresses on Wi-Fi and on the wired network. A reservation keeps one device on the same address.</p>
       </div>
       <div class="dhcp">
         <form id="reserve" class="stack">
@@ -112,14 +126,16 @@
 
     <div id="page-settings" class="page" hidden>
       <div class="head">
-        <h1>Settings.</h1>
-        <p>The tunnel is the default path. The access point is the Wi-Fi clients join.</p>
+        <p class="kicker">Settings</p>
+        <h1>Tunnel and Wi-Fi</h1>
+        <p>Mullvad is the normal path. Wi-Fi is the network devices join.</p>
       </div>
       <div class="dhcp">
         <div>
           <h2>Tunnel</h2>
-          <p class="copy">Devices use Mullvad unless you switch one of them to the direct path.</p>
+          <p class="copy">Switching city pins it. YumPi returns to that city after a restart. The dashboard is also at https on port 8443. The browser will ask you to trust the Pi’s certificate once.</p>
           <button class="btn" type="button" id="vpn-btn">Connect</button>
+          <button class="btn o" type="button" id="unpin-btn">Any city</button>
           <p class="err" id="vpn-err" role="alert"></p>
         </div>
         <div>
@@ -128,6 +144,7 @@
             <dt>Relay</dt><dd id="vpn-relay">—</dd>
             <dt>Location</dt><dd id="vpn-loc">—</dd>
             <dt>Exit</dt><dd id="vpn-ip">—</dd>
+            <dt>Pinned</dt><dd id="vpn-pin">—</dd>
           </dl>
           <form id="loc-form" class="stack">
             <label class="field"><span>Country</span><select id="country" name="country"></select></label>
@@ -138,14 +155,27 @@
       </div>
       <div class="dhcp">
         <div>
-          <h2>Access point</h2>
-          <p class="copy" id="ap-copy">5 GHz Wi-Fi from this Pi. A new password reconnects everyone.</p>
+          <h2>Wi-Fi</h2>
+          <p class="copy" id="ap-copy">5 GHz from this Pi. A new password reconnects everyone.</p>
         </div>
         <form id="wifi-form" class="stack">
           <label class="field"><span>Network name</span><input id="ssid" name="ssid" required maxlength="32" autocomplete="off"></label>
           <label class="field"><span>New password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep the current one"></label>
           <div><button class="btn" type="submit">Apply</button></div>
           <p class="err" id="wifi-err" role="alert"></p>
+        </form>
+      </div>
+      <div class="dhcp">
+        <div>
+          <h2>Guest Wi-Fi</h2>
+          <p class="copy">A second network for visitors. It always uses Mullvad and cannot reach your computers. Leave it off until you need it.</p>
+        </div>
+        <form id="guest-form" class="stack">
+          <label class="check"><input class="sw" id="guest-sw" type="checkbox"> Guest network on</label>
+          <label class="field"><span>Network name</span><input id="guest-ssid" name="ssid" maxlength="32" autocomplete="off"></label>
+          <label class="field"><span>Password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="At least 8 characters"></label>
+          <div><button class="btn" type="submit">Save guest Wi-Fi</button></div>
+          <p class="err" id="guest-err" role="alert"></p>
         </form>
       </div>
     </div>

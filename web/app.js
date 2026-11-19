@@ -72,14 +72,14 @@ function renderDevices() {
     const tr = document.createElement("tr");
     const connected = (data.devices || []).some((d) => d.online);
     const td = el("td", "empty", connected ? "No matches." : "Nobody is connected right now.");
-    td.colSpan = 6;
+    td.colSpan = 7;
     tr.append(td);
     body.append(tr);
     return;
   }
   for (const d of list) {
     const tr = document.createElement("tr");
-    tr.append(el("td", "", d.name), el("td", "mono", d.ip), el("td", "mono", d.mac), el("td", "mono", d.lease || "—"));
+    tr.append(el("td", "", d.name), el("td", "mono", d.ip), el("td", "mono", d.mac), el("td", "mono", d.usage || "—"), el("td", "mono", d.lease || "—"));
     const route = document.createElement("td");
     const sw = document.createElement("input");
     sw.className = "sw";
@@ -177,6 +177,16 @@ function render() {
   setText("vpn-relay", data.mullvad.relay);
   setText("vpn-loc", data.mullvad.location);
   setText("vpn-ip", data.mullvad.exit_ip);
+  setText("ov-relay", data.mullvad.connected ? data.mullvad.relay : "Not connected");
+  setText("ov-loc", data.mullvad.location);
+  setText("ov-exit", data.mullvad.exit_ip);
+  setText("vpn-pin", data.mullvad.pinned || "Any city");
+  const warn = $("ov-warn");
+  if (warn) warn.hidden = !(data.mullvad.connected && data.mullvad.obfuscated);
+  const gsw = $("guest-sw");
+  const gssid = $("guest-ssid");
+  if (gsw && document.activeElement !== gsw) gsw.checked = !!(data.guest && data.guest.enabled);
+  if (gssid && document.activeElement !== gssid && data.guest) gssid.value = data.guest.ssid || "";
   $("vpn-btn").textContent = data.mullvad.connected ? "Disconnect" : "Connect";
   const ssid = $("ssid");
   if (document.activeElement !== ssid) ssid.value = data.wifi.ssid;
@@ -306,6 +316,31 @@ $("loc-form").addEventListener("submit", async (ev) => {
     setTimeout(() => refresh().catch(() => {}), 1500);
   } catch (err) {
     $("vpn-err").textContent = err.message;
+  }
+});
+
+$("unpin-btn").addEventListener("click", async () => {
+  $("vpn-err").textContent = "";
+  try {
+    await api("/api/mullvad", { action: "unpin" });
+    flash("Using any city");
+    setTimeout(() => refresh().catch(() => {}), 1200);
+  } catch (err) {
+    $("vpn-err").textContent = err.message;
+  }
+});
+
+$("guest-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("guest-err").textContent = "";
+  const f = new FormData(ev.target);
+  try {
+    await api("/api/guest", { enabled: $("guest-sw").checked, ssid: f.get("ssid"), passphrase: f.get("passphrase") });
+    ev.target.querySelector("[name=passphrase]").value = "";
+    flash($("guest-sw").checked ? "Guest Wi-Fi is on" : "Guest Wi-Fi is off");
+    await refresh();
+  } catch (err) {
+    $("guest-err").textContent = err.message;
   }
 });
 
