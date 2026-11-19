@@ -46,6 +46,9 @@ func Render(in Input) (string, error) {
 	b.WriteString("add table inet yumpi\n")
 	b.WriteString("flush table inet yumpi\n")
 	b.WriteString("add set inet yumpi bypass { type ipv4_addr ; }\n")
+	// flush table does not empty an existing set, and add set does not replace one.
+	// Without this, an address stays on the direct path after it is switched back.
+	b.WriteString("flush set inet yumpi bypass\n")
 	b.WriteString("add set inet yumpi clients { type ipv4_addr ; flags interval ; }\n")
 	if len(bypass) > 0 {
 		fmt.Fprintf(&b, "add element inet yumpi bypass { %s }\n", joinAddrs(bypass))
@@ -68,6 +71,11 @@ func Render(in Input) (string, error) {
 		markWho = "@clients"
 	}
 	fmt.Fprintf(&b, "add rule inet yumpi exclude ip saddr %s ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } ct mark set 0x00000f41 meta mark set 0x6d6f6c65\n", markWho)
+	if in.VPNUp {
+		// Mullvad keeps applying a mark for the life of a connection. Clear it
+		// once that address is no longer on the direct path.
+		b.WriteString("add rule inet yumpi exclude ip saddr @clients ip saddr != @bypass ct mark set 0 meta mark set 0\n")
+	}
 
 	b.WriteString("add chain inet yumpi srcnat { type nat hook postrouting priority srcnat ; policy accept ; }\n")
 	if in.VPNUp && in.VPNIface != "" {

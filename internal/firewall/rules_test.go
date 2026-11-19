@@ -50,6 +50,21 @@ func TestRenderMarksBypassAfterDNAT(t *testing.T) {
 	if !strings.Contains(down, "ip saddr @clients ip daddr 10.64.0.1") {
 		t.Fatal(down)
 	}
+	if flush := strings.Index(script, "flush set inet yumpi bypass"); flush < 0 {
+		t.Fatal("bypass set is never emptied")
+	}
+	cleared := sampleInput(true)
+	cleared.Bypass = nil
+	back, err := Render(cleared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(back, "10.23.45.145") {
+		t.Fatal("removed address is still in the script")
+	}
+	if !strings.Contains(back, "flush set inet yumpi bypass") || !strings.Contains(back, "ct mark set 0") {
+		t.Fatal(back)
+	}
 }
 
 func TestForwardRulesCoverWiredBypass(t *testing.T) {
