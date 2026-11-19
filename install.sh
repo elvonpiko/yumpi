@@ -26,6 +26,15 @@ pull_image() {
   die "could not pull ${image}"
 }
 
+ensure_image() {
+  local image="$1"
+  if docker image inspect "$image" >/dev/null 2>&1; then
+    log "${image} is already on this machine"
+    return 0
+  fi
+  pull_image "$image"
+}
+
 gen() {
   local n="$1" i c out=""
   local chars=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
@@ -144,10 +153,12 @@ printf 'd /etc/yumpi 0700 root root -\nd /var/lib/yumpi 0700 root root -\nd /run
 log "Pulling base images"
 # BuildKit resolves registry DNS in its own namespace, which Mullvad rejects.
 # The daemon itself can pull, and the legacy builder then reuses those images.
-pull_image golang:1.27-bookworm
-pull_image debian:trixie-slim
+ensure_image golang:1.27-bookworm
+ensure_image debian:trixie-slim
 log "Building the container before touching the running network"
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose -f "$ROOT/compose.yml" build
+# The classic builder reuses local images. BuildKit's own resolver is
+# rejected by Mullvad, so keep it off for this build.
+DOCKER_BUILDKIT=0 docker build --network=host -t yumpi:local "$ROOT"
 
 if [[ ! -f /etc/yumpi/config.toml ]]; then
   if [[ -z "${YUMPI_LAN_CIDR:-}" || -z "${YUMPI_UPSTREAM:-}" ]]; then
@@ -222,7 +233,7 @@ fi
 
 legacy_cleanup
 log "Starting YumPi"
-docker compose -f "$ROOT/compose.yml" up -d --force-recreate
+DOCKER_BUILDKIT=0 docker compose -f "$ROOT/compose.yml" up -d --force-recreate --no-build
 ok=0
 for _ in $(seq 1 40); do
   if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
