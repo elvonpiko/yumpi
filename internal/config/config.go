@@ -20,6 +20,7 @@ type Config struct {
 	Model   string  `toml:"model"`
 	Auth    Auth    `toml:"auth"`
 	WiFi    WiFi    `toml:"wifi"`
+	Guest   Guest   `toml:"guest"`
 	LAN     LAN     `toml:"lan"`
 	DNS     DNS     `toml:"dns"`
 	Mullvad Mullvad `toml:"mullvad"`
@@ -36,6 +37,18 @@ type WiFi struct {
 	Passphrase string `toml:"passphrase"`
 	Country    string `toml:"country"`
 	Channel    int    `toml:"channel"`
+	Address    string `toml:"address"`
+	DHCPStart  string `toml:"dhcp_start"`
+	DHCPEnd    string `toml:"dhcp_end"`
+	Lease      string `toml:"lease"`
+}
+
+// Guest is the visitor access point. It stays off until a passphrase is saved
+// and the dashboard turns it on.
+type Guest struct {
+	Interface  string `toml:"interface"`
+	SSID       string `toml:"ssid"`
+	Passphrase string `toml:"passphrase"`
 	Address    string `toml:"address"`
 	DHCPStart  string `toml:"dhcp_start"`
 	DHCPEnd    string `toml:"dhcp_end"`
@@ -236,6 +249,31 @@ func (c Config) Validate() error {
 	if c.Mullvad.Chroot != "" && !filepath.IsAbs(c.Mullvad.Chroot) {
 		errs = append(errs, "mullvad.chroot must be absolute")
 	}
+	if c.guestConfigured() {
+		g := c.GuestWithDefaults()
+		if err := validateIface(g.Interface); err != nil {
+			errs = append(errs, "guest.interface: "+err.Error())
+		}
+		if g.Interface == c.WiFi.Interface || g.Interface == c.LAN.Interface {
+			errs = append(errs, "guest interface must differ from wifi and lan")
+		}
+		if err := validateSSID(g.SSID); err != nil {
+			errs = append(errs, "guest.ssid: "+err.Error())
+		}
+		if g.Passphrase != "" {
+			if err := validatePassphrase(g.Passphrase); err != nil {
+				errs = append(errs, "guest.passphrase: "+err.Error())
+			}
+		}
+		guestNet, gerr := parseNet(g.Interface, g.Address, g.DHCPStart, g.DHCPEnd, g.Lease)
+		if gerr != nil {
+			errs = append(errs, "guest: "+gerr.Error())
+		} else if wifiErr == nil && guestNet.Prefix.Overlaps(wifi.Prefix) {
+			errs = append(errs, "guest and wifi networks overlap")
+		} else if lanErr == nil && guestNet.Prefix.Overlaps(lan.Prefix) {
+			errs = append(errs, "guest and lan networks overlap")
+		}
+	}
 	if len(c.Model) > 80 || (c.Model != "" && !printable(c.Model)) {
 		errs = append(errs, "model is invalid")
 	}
@@ -252,6 +290,40 @@ func (c Config) Validate() error {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func (c Config) guestConfigured() bool {
+	g := c.Guest
+	return g.Interface != "" || g.SSID != "" || g.Passphrase != "" || g.Address != "" || g.DHCPStart != "" || g.DHCPEnd != ""
+}
+
+// GuestWithDefaults fills the visitor network used when the section is incomplete.
+func (c Config) GuestWithDefaults() Guest {
+	g := c.Guest
+	if g.Interface == "" {
+		g.Interface = "wlan0_0"
+	}
+	if g.SSID == "" {
+		g.SSID = "YumPi-Guest"
+	}
+	if g.Address == "" {
+		g.Address = "10.23.47.1/24"
+	}
+	if g.DHCPStart == "" {
+		g.DHCPStart = "10.23.47.50"
+	}
+	if g.DHCPEnd == "" {
+		g.DHCPEnd = "10.23.47.200"
+	}
+	if g.Lease == "" {
+		g.Lease = "12h"
+	}
+	return g
+}
+
+func (c Config) GuestNet() (Network, error) {
+	g := c.GuestWithDefaults()
+	return parseNet(g.Interface, g.Address, g.DHCPStart, g.DHCPEnd, g.Lease)
 }
 
 func (c Config) WiFiNet() (Network, error) {

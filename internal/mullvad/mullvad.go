@@ -14,11 +14,12 @@ import (
 
 // Status is the tunnel state the dashboard shows.
 type Status struct {
-	State     string
-	Connected bool
-	Relay     string
-	Location  string
-	ExitIP    string
+	State      string
+	Connected  bool
+	Relay      string
+	Location   string
+	ExitIP     string
+	Obfuscated bool
 }
 
 // City is one Mullvad city code.
@@ -52,7 +53,15 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return ParseStatus(out)
+	st, err := ParseStatus(out)
+	if err != nil || !st.Connected || st.Obfuscated {
+		return st, err
+	}
+	text, textErr := c.run(ctx, "status")
+	if textErr == nil {
+		st.Obfuscated = ObfuscatedText(text)
+	}
+	return st, nil
 }
 
 func (c *Client) Connect(ctx context.Context) error {
@@ -77,6 +86,12 @@ func (c *Client) SetLocation(ctx context.Context, location string) error {
 		return err
 	}
 	return c.Connect(ctx)
+}
+
+// ClearLocation removes a pinned country or city.
+func (c *Client) ClearLocation(ctx context.Context) error {
+	_, err := c.run(ctx, "relay", "set", "location", "any")
+	return err
 }
 
 // Relays returns countries and cities, cached for ten minutes.
@@ -132,7 +147,7 @@ func ParseStatus(raw string) (Status, error) {
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return Status{}, fmt.Errorf("mullvad status: %w", err)
 	}
-	st := Status{State: doc.State, Connected: doc.State == "connected"}
+	st := Status{State: doc.State, Connected: doc.State == "connected", Obfuscated: ObfuscatedText(raw)}
 	loc := doc.Details.Location
 	st.Relay = loc.Hostname
 	st.ExitIP = loc.IPv4
@@ -170,4 +185,15 @@ func ParseRelays(raw string) []Country {
 		}
 	}
 	return out
+}
+
+// ObfuscatedText reports Mullvad anti-censorship wrappers, which are often slower.
+func ObfuscatedText(raw string) bool {
+	low := strings.ToLower(raw)
+	for _, word := range []string{"lwo", "shadowsocks", "udp2tcp", "udp-over-tcp"} {
+		if strings.Contains(low, word) {
+			return true
+		}
+	}
+	return false
 }

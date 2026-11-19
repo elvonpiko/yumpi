@@ -38,23 +38,32 @@ type Status struct {
 	Expiring    int              `json:"expiring"`
 	Mullvad     MullvadView      `json:"mullvad"`
 	WiFi        WiFiView         `json:"wifi"`
+	Guest       GuestView        `json:"guest"`
 	Pools       PoolsView        `json:"pools"`
 	DNS         DNSView          `json:"dns"`
 	Devices     []devices.Device `json:"devices"`
 }
 
 type MullvadView struct {
-	Connected bool   `json:"connected"`
-	State     string `json:"state"`
-	Relay     string `json:"relay"`
-	Location  string `json:"location"`
-	ExitIP    string `json:"exit_ip"`
+	Connected  bool   `json:"connected"`
+	State      string `json:"state"`
+	Relay      string `json:"relay"`
+	Location   string `json:"location"`
+	ExitIP     string `json:"exit_ip"`
+	Obfuscated bool   `json:"obfuscated"`
+	Pinned     string `json:"pinned"`
 }
 
 type WiFiView struct {
 	SSID    string `json:"ssid"`
 	Channel int    `json:"channel"`
 	Country string `json:"country"`
+	Address string `json:"address"`
+}
+
+type GuestView struct {
+	Enabled bool   `json:"enabled"`
+	SSID    string `json:"ssid"`
 	Address string `json:"address"`
 }
 
@@ -122,6 +131,14 @@ func (d *Daemon) Run(ctx context.Context) {
 	}
 	d.super.SetDHCP(!d.store.Get().DHCPDisabled)
 	d.super.Start(ctx)
+	go d.keepGuestAddress(ctx)
+	if pin := d.store.Get().PinnedLocation; pin != "" {
+		go func() {
+			if err := d.mv.SetLocation(ctx, pin); err != nil {
+				d.log.Warn("pinned location", "err", err)
+			}
+		}()
+	}
 	d.reconcile(ctx)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -177,9 +194,18 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	stations, _ := d.run.Run(ctx, "iw", "dev", cfg.WiFi.Interface, "station", "dump")
+	if st.GuestEnabled {
+		if extra, err := d.run.Run(ctx, "iw", "dev", cfg.GuestWithDefaults().Interface, "station", "dump"); err == nil {
+			stations += "\n" + extra
+		}
+	}
 	neigh, _ := d.run.Run(ctx, "ip", "-4", "neigh", "show")
 	rawLeases, _ := os.ReadFile(cfg.Paths.Leases)
-	snap := devices.Assemble(time.Now(), wifi, lan, []netip.Addr{wifi.Gateway, lan.Gateway}, cfg.Upstream(), string(rawLeases), stations, neigh, st)
+	self := []netip.Addr{wifi.Gateway, lan.Gateway}
+	if gn, err := cfg.GuestNet(); err == nil {
+		self = append(self, gn.Gateway)
+	}
+	snap := devices.Assemble(time.Now(), wifi, lan, self, cfg.Upstream(), string(rawLeases), stations, neigh, st)
 	if snap.Devices == nil {
 		snap.Devices = []devices.Device{}
 	}
@@ -194,8 +220,9 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 		Model: model, Uptime: devices.FormatUptime(time.Since(d.started)),
 		DHCPEnabled: !st.DHCPDisabled,
 		Online:      snap.Online, LeasesUsed: snap.LeasesUsed, PoolSize: snap.PoolSize, Expiring: snap.Expiring,
-		Mullvad: MullvadView{Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP},
+		Mullvad: MullvadView{Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP, Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation},
 		WiFi:    WiFiView{SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Country: cfg.WiFi.Country, Address: cfg.WiFi.Address},
+		Guest:   GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
 		Pools: PoolsView{
 			WiFi: PoolView{Start: wifi.DHCPStart.String(), End: wifi.DHCPEnd.String(), Gateway: wifi.Gateway.String(), Lease: wifi.Lease, Size: config.PoolSize(wifi.DHCPStart, wifi.DHCPEnd), Used: snap.WiFiUsed},
 			LAN:  PoolView{Start: lan.DHCPStart.String(), End: lan.DHCPEnd.String(), Gateway: lan.Gateway.String(), Lease: lan.Lease, Size: config.PoolSize(lan.DHCPStart, lan.DHCPEnd), Used: snap.LANUsed},
@@ -216,11 +243,22 @@ func (d *Daemon) SetVPN(ctx context.Context, ip string, enabled bool) error {
 	if !wifi.Prefix.Contains(addr) && !lan.Prefix.Contains(addr) {
 		return invalid("That address is outside this gateway.")
 	}
+	if gn, err := cfg.GuestNet(); err == nil && gn.Prefix.Contains(addr) {
+		return invalid("Visitor Wi-Fi always uses Mullvad.")
+	}
 	if addr == wifi.Gateway || addr == lan.Gateway || addr == cfg.Upstream() {
 		return invalid("That address belongs to the gateway.")
 	}
+	mac := d.macForIP(addr.String())
 	if err := d.store.Update(func(st *state.State) error {
 		st.BypassIPs = without(st.BypassIPs, addr.String())
+		if mac != "" {
+			st.DirectMACs = without(st.DirectMACs, mac)
+			if !enabled {
+				st.DirectMACs = append(st.DirectMACs, mac)
+			}
+			return nil
+		}
 		if !enabled {
 			st.BypassIPs = append(st.BypassIPs, addr.String())
 		}
@@ -336,6 +374,22 @@ func (d *Daemon) MullvadAction(ctx context.Context, action, location string) err
 		if err := d.mv.SetLocation(ctx, location); err != nil {
 			return invalid(err.Error())
 		}
+		if err := d.store.Update(func(st *state.State) error {
+			st.PinnedLocation = strings.TrimSpace(strings.ToLower(location))
+			return nil
+		}); err != nil {
+			return err
+		}
+	case "unpin":
+		if err := d.mv.ClearLocation(ctx); err != nil {
+			return err
+		}
+		if err := d.store.Update(func(st *state.State) error {
+			st.PinnedLocation = ""
+			return nil
+		}); err != nil {
+			return err
+		}
 	default:
 		return invalid("Unknown action.")
 	}
@@ -372,6 +426,82 @@ func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase string) error {
 	return nil
 }
 
+func (d *Daemon) SetGuest(ctx context.Context, enabled bool, ssid, passphrase string) error {
+	d.mu.Lock()
+	cfg := d.cfg
+	g := cfg.GuestWithDefaults()
+	if strings.TrimSpace(ssid) != "" {
+		g.SSID = strings.TrimSpace(ssid)
+	}
+	if passphrase != "" {
+		g.Passphrase = passphrase
+	}
+	if enabled && len(g.Passphrase) < 8 {
+		d.mu.Unlock()
+		return invalid("Set a guest password of at least 8 characters.")
+	}
+	cfg.Guest = g
+	if err := cfg.Validate(); err != nil {
+		d.mu.Unlock()
+		return invalid("Check the guest network name and password.")
+	}
+	if err := config.Save(d.path, cfg); err != nil {
+		d.mu.Unlock()
+		return err
+	}
+	d.cfg = cfg
+	d.mu.Unlock()
+	if err := d.store.Update(func(st *state.State) error {
+		st.GuestEnabled = enabled
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := d.writeLocked(); err != nil {
+		return err
+	}
+	d.super.RestartAP()
+	d.super.RestartDHCP()
+	d.kick()
+	return nil
+}
+
+func (d *Daemon) keepGuestAddress(ctx context.Context) {
+	t := time.NewTicker(3 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !d.store.Get().GuestEnabled {
+				continue
+			}
+			cfg := d.config()
+			g := cfg.GuestWithDefaults()
+			if g.Passphrase == "" {
+				continue
+			}
+			netmgr.PrepareLink(ctx, d.run, g.Interface, g.Address)
+		}
+	}
+}
+
+func (d *Daemon) macForIP(ip string) string {
+	raw, err := os.ReadFile(d.config().Paths.Leases)
+	if err != nil {
+		return ""
+	}
+	for _, l := range devices.ParseLeases(string(raw)) {
+		if l.IP.String() == ip && l.MAC != "" {
+			if mac, ok := netconv.MAC(l.MAC); ok {
+				return mac
+			}
+		}
+	}
+	return ""
+}
+
 func (d *Daemon) restartDHCP() error {
 	if err := d.writeLocked(); err != nil {
 		return err
@@ -388,7 +518,8 @@ func (d *Daemon) reconcile(ctx context.Context) {
 	cfg := d.config()
 	st := d.store.Get()
 	vpn, _ := d.tunnel(ctx)
-	in, err := firewallInput(cfg, st, vpn.Connected)
+	rawLeases, _ := os.ReadFile(cfg.Paths.Leases)
+	in, err := firewallInput(cfg, st, vpn.Connected, string(rawLeases))
 	if err != nil {
 		d.log.Error("firewall input", "err", err)
 		return
@@ -410,7 +541,7 @@ func (d *Daemon) tunnel(ctx context.Context) (mullvad.Status, error) {
 	return mullvad.Status{State: "unknown"}, err
 }
 
-func firewallInput(cfg config.Config, st state.State, up bool) (firewall.Input, error) {
+func firewallInput(cfg config.Config, st state.State, up bool, leases string) (firewall.Input, error) {
 	wifi, err := cfg.WiFiNet()
 	if err != nil {
 		return firewall.Input{}, err
@@ -419,14 +550,30 @@ func firewallInput(cfg config.Config, st state.State, up bool) (firewall.Input, 
 	if err != nil {
 		return firewall.Input{}, err
 	}
+	direct := map[string]struct{}{}
+	for _, mac := range st.DirectMACs {
+		direct[mac] = struct{}{}
+	}
 	var bypass []netip.Addr
+	seen := map[netip.Addr]struct{}{}
+	add := func(a netip.Addr) {
+		if _, ok := seen[a]; ok {
+			return
+		}
+		seen[a] = struct{}{}
+		bypass = append(bypass, a)
+	}
 	for _, ip := range st.BypassIPs {
-		a, err := netip.ParseAddr(ip)
-		if err == nil {
-			bypass = append(bypass, a)
+		if a, err := netip.ParseAddr(ip); err == nil {
+			add(a)
 		}
 	}
-	return firewall.Input{
+	for _, l := range devices.ParseLeases(leases) {
+		if _, ok := direct[l.MAC]; ok {
+			add(l.IP)
+		}
+	}
+	in := firewall.Input{
 		WiFiIface: wifi.Iface,
 		LANIface:  lan.Iface,
 		VPNIface:  cfg.Mullvad.Interface,
@@ -436,7 +583,17 @@ func firewallInput(cfg config.Config, st state.State, up bool) (firewall.Input, 
 		LANNet:    lan.Prefix,
 		Bypass:    bypass,
 		VPNUp:     up,
-	}, nil
+	}
+	if st.GuestEnabled && cfg.Guest.Passphrase != "" {
+		if gn, err := cfg.GuestNet(); err == nil {
+			g := cfg.GuestWithDefaults()
+			in.GuestOn = true
+			in.GuestIface = g.Interface
+			in.GuestGW = gn.Gateway
+			in.GuestNet = gn.Prefix
+		}
+	}
+	return in, nil
 }
 
 func without(in []string, v string) []string {

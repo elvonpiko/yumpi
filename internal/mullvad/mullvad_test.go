@@ -18,6 +18,15 @@ func TestParseStatus(t *testing.T) {
 	}
 }
 
+func TestObfuscatedText(t *testing.T) {
+	if !ObfuscatedText("Features: LAN Sharing, LWO, Quantum Resistance") {
+		t.Fatal("lwo")
+	}
+	if ObfuscatedText("Features: LAN Sharing, Quantum Resistance") {
+		t.Fatal("plain tunnel")
+	}
+}
+
 func TestParseRelays(t *testing.T) {
 	raw := "Albania (al)\n\tTirana (tia) @ 41.3°N, 19.8°W\n\t\tal-tia-wg-001\nUnited States (us)\n\tNew York, NY (nyc) @ 40°N, -73°W\n\tLos Angeles, CA (lax) @ 34°N, -118°W\n"
 	got := ParseRelays(raw)

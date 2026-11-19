@@ -35,7 +35,11 @@ func Apply(ctx context.Context, run system.Runner, dir string, in Input) error {
 	if err := syncIptables(ctx, run, in); err != nil {
 		return err
 	}
-	if err := syncDHCP(ctx, run, []string{in.WiFiIface, in.LANIface}); err != nil {
+	ifaces := []string{in.WiFiIface, in.LANIface}
+	if in.GuestOn && in.GuestIface != "" {
+		ifaces = append(ifaces, in.GuestIface)
+	}
+	if err := syncDHCP(ctx, run, ifaces); err != nil {
 		return err
 	}
 	return nil

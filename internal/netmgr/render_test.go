@@ -28,7 +28,7 @@ func TestWPA2VectorAndHostapd(t *testing.T) {
 	if got := WPA2PSK("IEEE", "password"); got != "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e" {
 		t.Fatal(got)
 	}
-	conf := HostapdConf(cfg().WiFi, "/run/yumpi/hostapd.deny", "/run/yumpi/hostapd")
+	conf := HostapdConf(cfg().WiFi, config.Guest{}, false, "/run/yumpi/hostapd.deny", "/run/yumpi/hostapd")
 	if strings.Contains(conf, "password") {
 		t.Fatal("passphrase leaked into hostapd.conf")
 	}
@@ -37,6 +37,11 @@ func TestWPA2VectorAndHostapd(t *testing.T) {
 	}
 	if !strings.Contains(conf, "hw_mode=a") || !strings.Contains(conf, "ieee80211ac=1") {
 		t.Fatal(conf)
+	}
+	guest := config.Guest{Interface: "wlan0_0", SSID: "YumPi-Guest", Passphrase: "guestpass"}
+	with := HostapdConf(cfg().WiFi, guest, true, "/run/yumpi/hostapd.deny", "/run/yumpi/hostapd")
+	if strings.Contains(with, "guestpass") || !strings.Contains(with, "bss=wlan0_0") || !strings.Contains(with, "ap_isolate=1") {
+		t.Fatal(with)
 	}
 }
 

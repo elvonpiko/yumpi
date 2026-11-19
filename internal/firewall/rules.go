@@ -11,15 +11,19 @@ import (
 
 // Input is everything the ruleset is allowed to depend on.
 type Input struct {
-	WiFiIface string
-	LANIface  string
-	VPNIface  string
-	TunnelDNS netip.Addr
-	DirectDNS netip.Addr
-	WiFiNet   netip.Prefix
-	LANNet    netip.Prefix
-	Bypass    []netip.Addr
-	VPNUp     bool
+	WiFiIface  string
+	LANIface   string
+	VPNIface   string
+	TunnelDNS  netip.Addr
+	DirectDNS  netip.Addr
+	WiFiNet    netip.Prefix
+	LANNet     netip.Prefix
+	Bypass     []netip.Addr
+	VPNUp      bool
+	GuestIface string
+	GuestGW    netip.Addr
+	GuestNet   netip.Prefix
+	GuestOn    bool
 }
 
 var ifaceRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,14}$`)
@@ -36,6 +40,9 @@ func Render(in Input) (string, error) {
 	}
 	if in.VPNUp && in.VPNIface != "" && !ifaceRE.MatchString(in.VPNIface) {
 		return "", fmt.Errorf("invalid vpn interface")
+	}
+	if in.GuestOn && !ifaceRE.MatchString(in.GuestIface) {
+		return "", fmt.Errorf("invalid guest interface")
 	}
 	if !in.TunnelDNS.Is4() || !in.DirectDNS.Is4() {
 		return "", fmt.Errorf("dns addresses must be ipv4")
@@ -54,6 +61,11 @@ func Render(in Input) (string, error) {
 		fmt.Fprintf(&b, "add element inet yumpi bypass { %s }\n", joinAddrs(bypass))
 	}
 	fmt.Fprintf(&b, "add element inet yumpi clients { %s, %s }\n", in.WiFiNet, in.LANNet)
+	if in.GuestOn {
+		b.WriteString("add set inet yumpi guest { type ipv4_addr ; flags interval ; }\n")
+		b.WriteString("flush set inet yumpi guest\n")
+		fmt.Fprintf(&b, "add element inet yumpi guest { %s }\n", in.GuestNet)
+	}
 
 	b.WriteString("add chain inet yumpi dstnat { type nat hook prerouting priority dstnat ; policy accept ; }\n")
 	who := "@bypass"
@@ -75,6 +87,16 @@ func Render(in Input) (string, error) {
 		// Mullvad keeps applying a mark for the life of a connection. Clear it
 		// once that address is no longer on the direct path.
 		b.WriteString("add rule inet yumpi exclude ip saddr @clients ip saddr != @bypass ct mark set 0 meta mark set 0\n")
+	}
+	if in.GuestOn {
+		// Visitors may use DHCP and DNS on the Pi. Everything else to the Pi is dropped,
+		// including the dashboard.
+		b.WriteString("add chain inet yumpi guest_in { type filter hook input priority -10 ; policy accept ; }\n")
+		fmt.Fprintf(&b, "add rule inet yumpi guest_in iifname %q ct state established,related accept\n", in.GuestIface)
+		fmt.Fprintf(&b, "add rule inet yumpi guest_in iifname %q udp dport 67 accept\n", in.GuestIface)
+		fmt.Fprintf(&b, "add rule inet yumpi guest_in iifname %q ip daddr %s udp dport 53 accept\n", in.GuestIface, in.GuestGW)
+		fmt.Fprintf(&b, "add rule inet yumpi guest_in iifname %q ip daddr %s tcp dport 53 accept\n", in.GuestIface, in.GuestGW)
+		fmt.Fprintf(&b, "add rule inet yumpi guest_in iifname %q drop\n", in.GuestIface)
 	}
 
 	b.WriteString("add chain inet yumpi srcnat { type nat hook postrouting priority srcnat ; policy accept ; }\n")
@@ -119,6 +141,17 @@ func joinAddrs(in []netip.Addr) string {
 // accept does not by itself let a packet through.
 func ForwardRules(in Input) [][]string {
 	var rules [][]string
+	if in.GuestOn && in.GuestIface != "" {
+		if in.VPNUp && in.VPNIface != "" {
+			rules = append(rules,
+				[]string{"-i", in.GuestIface, "-o", in.VPNIface, "-j", "ACCEPT"},
+				[]string{"-i", in.VPNIface, "-o", in.GuestIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
+			)
+		}
+		// Anything a visitor sends that is not the tunnel is dropped, including
+		// the path to the home router and the other Wi-Fi.
+		rules = append(rules, []string{"-i", in.GuestIface, "-j", "DROP"})
+	}
 	if in.VPNUp && in.VPNIface != "" {
 		rules = append(rules,
 			[]string{"-i", in.WiFiIface, "-o", in.VPNIface, "-j", "ACCEPT"},

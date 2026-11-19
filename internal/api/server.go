@@ -34,6 +34,7 @@ type Service interface {
 	SetDHCP(ctx context.Context, enabled bool) error
 	MullvadAction(ctx context.Context, action, location string) error
 	SetWiFi(ctx context.Context, ssid, passphrase string) error
+	SetGuest(ctx context.Context, enabled bool, ssid, passphrase string) error
 	Relays(ctx context.Context) ([]mullvad.Country, error)
 }
 
@@ -60,6 +61,7 @@ func New(svc Service, assets fs.FS, log *slog.Logger) http.Handler {
 	mux.Handle("POST /api/dhcp", s.auth(http.HandlerFunc(s.dhcp)))
 	mux.Handle("POST /api/mullvad", s.auth(http.HandlerFunc(s.mullvad)))
 	mux.Handle("POST /api/wifi", s.auth(http.HandlerFunc(s.wifi)))
+	mux.Handle("POST /api/guest", s.auth(http.HandlerFunc(s.guest)))
 	mux.HandleFunc("GET /{$}", s.static)
 	mux.HandleFunc("GET /{path...}", s.static)
 	return securityHeaders(mux)
@@ -92,14 +94,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "Incorrect password.")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int((12 * time.Hour).Seconds()),
-	})
+	http.SetCookie(w, sessionCookie(r, token, int((12*time.Hour).Seconds())))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -107,7 +102,7 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
 		s.svc.Logout(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, sessionCookie(r, "", -1))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -200,6 +195,19 @@ func (s *server) mullvad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeCall(w, r, s.svc.MullvadAction(r.Context(), body.Action, body.Location))
+}
+
+func (s *server) guest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled    bool   `json:"enabled"`
+		SSID       string `json:"ssid"`
+		Passphrase string `json:"passphrase"`
+	}
+	if err := readJSON(w, r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "Missing guest settings.")
+		return
+	}
+	s.writeCall(w, r, s.svc.SetGuest(r.Context(), body.Enabled, body.SSID, body.Passphrase))
 }
 
 func (s *server) wifi(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +311,18 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+func sessionCookie(r *http.Request, token string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   maxAge,
+	}
+}
+
 func originOK(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -341,9 +361,8 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-// Serve runs the HTTP server until ctx is cancelled.
-func Serve(ctx context.Context, addr string, h http.Handler) error {
-	srv := &http.Server{
+func newServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
 		Addr:              addr,
 		Handler:           h,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -351,8 +370,11 @@ func Serve(ctx context.Context, addr string, h http.Handler) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+}
+
+func serveUntil(ctx context.Context, srv *http.Server, listen func() error) error {
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() { errc <- listen() }()
 	select {
 	case <-ctx.Done():
 		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -365,4 +387,16 @@ func Serve(ctx context.Context, addr string, h http.Handler) error {
 		}
 		return err
 	}
+}
+
+// Serve runs the HTTP server until ctx is cancelled.
+func Serve(ctx context.Context, addr string, h http.Handler) error {
+	srv := newServer(addr, h)
+	return serveUntil(ctx, srv, srv.ListenAndServe)
+}
+
+// ServeTLS runs the dashboard over HTTPS until ctx is cancelled.
+func ServeTLS(ctx context.Context, addr, certFile, keyFile string, h http.Handler) error {
+	srv := newServer(addr, h)
+	return serveUntil(ctx, srv, func() error { return srv.ListenAndServeTLS(certFile, keyFile) })
 }

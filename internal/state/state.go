@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -17,11 +19,16 @@ type Reservation struct {
 
 // State is mutable gateway policy. It is rewritten atomically.
 type State struct {
-	BypassIPs    []string      `json:"bypass_ips"`
-	BlockedMACs  []string      `json:"blocked_macs"`
-	Reservations []Reservation `json:"reservations"`
-	DHCPDisabled bool          `json:"dhcp_disabled"`
+	BypassIPs      []string      `json:"bypass_ips"`
+	DirectMACs     []string      `json:"direct_macs"`
+	BlockedMACs    []string      `json:"blocked_macs"`
+	Reservations   []Reservation `json:"reservations"`
+	DHCPDisabled   bool          `json:"dhcp_disabled"`
+	PinnedLocation string        `json:"pinned_location"`
+	GuestEnabled   bool          `json:"guest_enabled"`
 }
+
+var pinnedRE = regexp.MustCompile(`^[a-z]{2}(?: [a-z]{3})?$`)
 
 // Store is the process-wide copy of State.
 type Store struct {
@@ -76,6 +83,7 @@ func (s *Store) Update(fn func(*State) error) error {
 func clone(in State) State {
 	out := in
 	out.BypassIPs = append([]string(nil), in.BypassIPs...)
+	out.DirectMACs = append([]string(nil), in.DirectMACs...)
 	out.BlockedMACs = append([]string(nil), in.BlockedMACs...)
 	out.Reservations = append([]Reservation(nil), in.Reservations...)
 	return out
@@ -83,7 +91,12 @@ func clone(in State) State {
 
 func normalize(in State) State {
 	in.BypassIPs = uniqSorted(in.BypassIPs)
+	in.DirectMACs = uniqSorted(in.DirectMACs)
 	in.BlockedMACs = uniqSorted(in.BlockedMACs)
+	in.PinnedLocation = strings.TrimSpace(strings.ToLower(in.PinnedLocation))
+	if !pinnedRE.MatchString(in.PinnedLocation) {
+		in.PinnedLocation = ""
+	}
 	if in.Reservations == nil {
 		in.Reservations = []Reservation{}
 	}

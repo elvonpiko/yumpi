@@ -24,6 +24,7 @@ type Device struct {
 	Blocked  bool   `json:"blocked"`
 	Lease    string `json:"lease"`
 	Reserved bool   `json:"reserved"`
+	Usage    string `json:"usage"`
 }
 
 // Snapshot is the device list plus the figures for the three stat blocks.
@@ -47,6 +48,7 @@ type lease struct {
 // Assemble merges DHCP leases, Wi-Fi stations, and neighbors into one list.
 func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstream netip.Addr, leases, stations, neigh string, st state.State) Snapshot {
 	bypass := setOf(st.BypassIPs)
+	directMAC := setOf(st.DirectMACs)
 	blocked := setOf(st.BlockedMACs)
 	reservedByMAC := map[string]state.Reservation{}
 	reservedByIP := map[string]state.Reservation{}
@@ -54,7 +56,11 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		reservedByMAC[r.MAC] = r
 		reservedByIP[r.IP] = r
 	}
-	stationMAC := ParseStations(stations)
+	stationDump := ParseStationDump(stations)
+	stationMAC := map[string]struct{}{}
+	for mac := range stationDump {
+		stationMAC[mac] = struct{}{}
+	}
 	neighbors := ParseNeigh(neigh)
 
 	byIP := map[string]*Device{}
@@ -104,8 +110,9 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		}
 		d := &Device{
 			IP: l.IP.String(), MAC: l.MAC, Name: name, Source: source, Online: online,
-			VPN: !has(bypass, l.IP.String()), Blocked: has(blocked, l.MAC),
+			VPN: !has(bypass, l.IP.String()) && !has(directMAC, l.MAC), Blocked: has(blocked, l.MAC),
 			Lease: formatLease(l.Expiry, now, false), Reserved: isRes || hasIP(reservedByIP, l.IP.String()),
+			Usage: usageOf(stationDump, l.MAC),
 		}
 		byIP[d.IP] = d
 	}
@@ -129,8 +136,8 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		byIP[r.IP] = &Device{
 			IP: r.IP, MAC: r.MAC, Name: name, Source: source,
 			Online: neighborUp(neighbors[ip]) || (source == "wifi" && has(stationMAC, r.MAC)),
-			VPN:    !has(bypass, r.IP), Blocked: has(blocked, r.MAC),
-			Lease: "Reserved", Reserved: true,
+			VPN:    !has(bypass, r.IP) && !has(directMAC, r.MAC), Blocked: has(blocked, r.MAC),
+			Lease: "Reserved", Reserved: true, Usage: usageOf(stationDump, r.MAC),
 		}
 	}
 
@@ -152,8 +159,8 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		}
 		byIP[ip.String()] = &Device{
 			IP: ip.String(), MAC: n.MAC, Name: name, Source: "wifi", Online: true,
-			VPN: !has(bypass, ip.String()), Blocked: has(blocked, n.MAC),
-			Lease: "—", Reserved: hasIP(reservedByIP, ip.String()),
+			VPN: !has(bypass, ip.String()) && !has(directMAC, n.MAC), Blocked: has(blocked, n.MAC),
+			Lease: "—", Reserved: hasIP(reservedByIP, ip.String()), Usage: usageOf(stationDump, n.MAC),
 		}
 	}
 
@@ -264,13 +271,71 @@ func ParseLeases(raw string) []lease {
 
 var stationRE = regexp.MustCompile(`(?i)Station ([0-9a-f:]{17})`)
 
+// Station is one associated Wi-Fi client and the bytes the AP has moved for it.
+type Station struct {
+	RX uint64
+	TX uint64
+}
+
 // ParseStations returns MACs currently associated to the AP.
 func ParseStations(raw string) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, m := range stationRE.FindAllStringSubmatch(raw, -1) {
-		out[strings.ToLower(m[1])] = struct{}{}
+	for mac := range ParseStationDump(raw) {
+		out[mac] = struct{}{}
 	}
 	return out
+}
+
+// ParseStationDump reads `iw dev … station dump`.
+func ParseStationDump(raw string) map[string]Station {
+	out := map[string]Station{}
+	cur := ""
+	for _, line := range strings.Split(raw, "\n") {
+		if m := stationRE.FindStringSubmatch(line); m != nil {
+			cur = strings.ToLower(m[1])
+			out[cur] = Station{}
+			continue
+		}
+		if cur == "" {
+			continue
+		}
+		line = strings.TrimSpace(line)
+		st := out[cur]
+		switch {
+		case strings.HasPrefix(line, "rx bytes:"):
+			fmt.Sscan(strings.TrimSpace(strings.TrimPrefix(line, "rx bytes:")), &st.RX)
+		case strings.HasPrefix(line, "tx bytes:"):
+			fmt.Sscan(strings.TrimSpace(strings.TrimPrefix(line, "tx bytes:")), &st.TX)
+		}
+		out[cur] = st
+	}
+	return out
+}
+
+// FormatBytes renders a byte count for the device list.
+func FormatBytes(n uint64) string {
+	if n == 0 {
+		return ""
+	}
+	units := []string{"B", "KB", "MB", "GB"}
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d B", n)
+	}
+	return fmt.Sprintf("%.1f %s", v, units[i])
+}
+
+func usageOf(dump map[string]Station, mac string) string {
+	st, ok := dump[mac]
+	if !ok {
+		return ""
+	}
+	return FormatBytes(st.RX + st.TX)
 }
 
 // ParseNeigh reads `ip -4 neigh`.

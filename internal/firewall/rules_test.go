@@ -67,6 +67,31 @@ func TestRenderMarksBypassAfterDNAT(t *testing.T) {
 	}
 }
 
+func TestGuestCannotLeaveTheTunnel(t *testing.T) {
+	in := sampleInput(true)
+	in.GuestOn = true
+	in.GuestIface = "wlan0_0"
+	in.GuestGW = netip.MustParseAddr("10.23.47.1")
+	in.GuestNet = netip.MustParsePrefix("10.23.47.0/24")
+	script, err := Render(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, `iifname "wlan0_0" drop`) || !strings.Contains(script, "10.23.47.0/24") {
+		t.Fatal(script)
+	}
+	rules := joinRules(ForwardRules(in))
+	if !strings.Contains(rules, "-i wlan0_0 -o wg0-mullvad -j ACCEPT") || !strings.Contains(rules, "-i wlan0_0 -j DROP") {
+		t.Fatal(rules)
+	}
+	down := sampleInput(false)
+	down.GuestOn = true
+	down.GuestIface = "wlan0_0"
+	if strings.Contains(joinRules(ForwardRules(down)), "wlan0_0 -o eth0") {
+		t.Fatal("guest can reach the home router")
+	}
+}
+
 func TestForwardRulesCoverWiredBypass(t *testing.T) {
 	all := joinRules(ForwardRules(sampleInput(true)))
 	if !strings.Contains(all, "-i eth0 -o eth0 -m connmark --mark 0x00000f41 -j ACCEPT") {

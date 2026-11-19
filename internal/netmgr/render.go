@@ -22,7 +22,7 @@ func WPA2PSK(ssid, passphrase string) string {
 }
 
 // HostapdConf renders a 5 GHz or 2.4 GHz AP config. The passphrase is stored only as a PSK.
-func HostapdConf(wifi config.WiFi, denyPath, ctrlDir string) string {
+func HostapdConf(wifi config.WiFi, guest config.Guest, guestOn bool, denyPath, ctrlDir string) string {
 	mode := "a"
 	ac := "1"
 	if wifi.Channel <= 14 {
@@ -49,6 +49,15 @@ func HostapdConf(wifi config.WiFi, denyPath, ctrlDir string) string {
 	fmt.Fprintf(&b, "deny_mac_file=%s\n", denyPath)
 	fmt.Fprintf(&b, "ctrl_interface=%s\n", ctrlDir)
 	b.WriteString("ctrl_interface_group=0\n")
+	if guestOn && guest.Passphrase != "" {
+		fmt.Fprintf(&b, "bss=%s\n", guest.Interface)
+		fmt.Fprintf(&b, "ssid=%s\n", guest.SSID)
+		b.WriteString("ap_isolate=1\n")
+		b.WriteString("wpa=2\n")
+		fmt.Fprintf(&b, "wpa_psk=%s\n", WPA2PSK(guest.SSID, guest.Passphrase))
+		b.WriteString("wpa_key_mgmt=WPA-PSK\n")
+		b.WriteString("rsn_pairwise=CCMP\n")
+	}
 	return b.String()
 }
 
@@ -87,6 +96,16 @@ func DNSMasqConf(cfg config.Config, leases string, st state.State) (string, erro
 	fmt.Fprintf(&b, "dhcp-range=set:lan,%s,%s,%s,%s\n", lan.DHCPStart, lan.DHCPEnd, maskString(lan.Prefix), lan.Lease)
 	fmt.Fprintf(&b, "dhcp-option=tag:lan,3,%s\n", lan.Gateway)
 	fmt.Fprintf(&b, "dhcp-option=tag:lan,6,%s\n", cfg.TunnelDNS())
+	if st.GuestEnabled {
+		guest := cfg.GuestWithDefaults()
+		gn, gerr := cfg.GuestNet()
+		if gerr == nil && guest.Passphrase != "" {
+			fmt.Fprintf(&b, "interface=%s\n", guest.Interface)
+			fmt.Fprintf(&b, "dhcp-range=set:guest,%s,%s,%s,%s\n", gn.DHCPStart, gn.DHCPEnd, maskString(gn.Prefix), gn.Lease)
+			fmt.Fprintf(&b, "dhcp-option=tag:guest,3,%s\n", gn.Gateway)
+			fmt.Fprintf(&b, "dhcp-option=tag:guest,6,%s\n", cfg.TunnelDNS())
+		}
+	}
 	fmt.Fprintf(&b, "dhcp-leasefile=%s\n", leases)
 	b.WriteString("log-facility=-\n")
 	for _, r := range st.Reservations {
@@ -125,7 +144,7 @@ func Write(dir string, cfg config.Config, st state.State) error {
 	if err := os.WriteFile(deny, []byte(DenyFile(st.BlockedMACs)), 0o644); err != nil {
 		return err
 	}
-	hostapd := HostapdConf(cfg.WiFi, deny, ctrl)
+	hostapd := HostapdConf(cfg.WiFi, cfg.GuestWithDefaults(), st.GuestEnabled, deny, ctrl)
 	if err := os.WriteFile(filepath.Join(dir, "hostapd.conf"), []byte(hostapd), 0o600); err != nil {
 		return err
 	}

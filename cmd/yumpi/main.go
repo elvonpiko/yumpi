@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"yumpi/internal/api"
@@ -55,9 +57,43 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go d.Run(ctx)
+	handler := api.New(d, web.FS, log)
+	httpsAddr := httpsListen(cfg.Listen)
+	if cert, key, err := api.EnsureCert(filepath.Join(filepath.Dir(cfg.Paths.State), "tls"), certHosts(cfg)); err != nil {
+		log.Error("https certificate", "err", err)
+	} else {
+		go func() {
+			log.Info("listening", "addr", httpsAddr, "tls", true)
+			if err := api.ServeTLS(ctx, httpsAddr, cert, key, handler); err != nil && ctx.Err() == nil {
+				log.Error("https", "err", err)
+			}
+		}()
+	}
 	log.Info("listening", "addr", cfg.Listen)
-	if err := api.Serve(ctx, cfg.Listen, api.New(d, web.FS, log)); err != nil {
+	if err := api.Serve(ctx, cfg.Listen, handler); err != nil {
 		log.Error("http", "err", err)
 		os.Exit(1)
 	}
+}
+
+func httpsListen(httpAddr string) string {
+	host, port, err := net.SplitHostPort(httpAddr)
+	if err != nil || port != "8080" {
+		return net.JoinHostPort(host, "8443")
+	}
+	return net.JoinHostPort(host, "8443")
+}
+
+func certHosts(cfg config.Config) []string {
+	var hosts []string
+	if n, err := cfg.LANNet(); err == nil {
+		hosts = append(hosts, n.Gateway.String())
+	}
+	if n, err := cfg.WiFiNet(); err == nil {
+		hosts = append(hosts, n.Gateway.String())
+	}
+	if n, err := cfg.GuestNet(); err == nil {
+		hosts = append(hosts, n.Gateway.String())
+	}
+	return hosts
 }
