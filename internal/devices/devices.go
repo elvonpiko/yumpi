@@ -75,10 +75,24 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		} else {
 			snap.LANUsed++
 		}
-		snap.LeasesUsed++
-		expiring := !l.Expiry.IsZero() && l.Expiry.After(now) && l.Expiry.Sub(now) <= time.Hour
-		if expiring {
-			snap.Expiring++
+		expired := !l.Expiry.IsZero() && !l.Expiry.After(now)
+		_, onStation := stationMAC[l.MAC]
+		online := false
+		if source == "wifi" {
+			online = onStation || neighborUp(neighbors[l.IP])
+		} else {
+			online = neighborUp(neighbors[l.IP])
+		}
+		if !expired {
+			snap.LeasesUsed++
+			expiring := l.Expiry.After(now) && l.Expiry.Sub(now) <= time.Hour
+			if expiring {
+				snap.Expiring++
+			}
+		}
+		// A lease outlives the client. The list is who is connected now.
+		if !online {
+			continue
 		}
 		name := cleanName(l.Name)
 		res, isRes := reservedByMAC[l.MAC]
@@ -87,13 +101,6 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		}
 		if name == "" {
 			name = fallbackName(source)
-		}
-		online := false
-		if source == "wifi" {
-			_, onStation := stationMAC[l.MAC]
-			online = onStation || neighborUp(neighbors[l.IP])
-		} else {
-			online = neighborUp(neighbors[l.IP])
 		}
 		d := &Device{
 			IP: l.IP.String(), MAC: l.MAC, Name: name, Source: source, Online: online,
@@ -127,28 +134,25 @@ func Assemble(now time.Time, wifi, lan config.Network, self []netip.Addr, upstre
 		}
 	}
 
+	// A Wi-Fi client can associate before its lease is written. Wired neighbors
+	// without a lease are just other machines on the upstream LAN.
 	for ip, n := range neighbors {
-		if !neighborUp(n) || skipAddr(ip, self, upstream) {
-			continue
-		}
-		if !wifi.Prefix.Contains(ip) && !lan.Prefix.Contains(ip) {
+		if !neighborUp(n) || skipAddr(ip, self, upstream) || !wifi.Prefix.Contains(ip) {
 			continue
 		}
 		if _, ok := byIP[ip.String()]; ok {
 			continue
 		}
-		source := "lan"
-		if wifi.Prefix.Contains(ip) {
-			source = "wifi"
+		if _, on := stationMAC[n.MAC]; !on {
+			continue
 		}
-		mac := n.MAC
-		name := fallbackName(source)
-		if r, ok := reservedByMAC[mac]; ok && r.Name != "" {
+		name := fallbackName("wifi")
+		if r, ok := reservedByMAC[n.MAC]; ok && r.Name != "" {
 			name = r.Name
 		}
 		byIP[ip.String()] = &Device{
-			IP: ip.String(), MAC: mac, Name: name, Source: source, Online: true,
-			VPN: !has(bypass, ip.String()), Blocked: has(blocked, mac),
+			IP: ip.String(), MAC: n.MAC, Name: name, Source: "wifi", Online: true,
+			VPN: !has(bypass, ip.String()), Blocked: has(blocked, n.MAC),
 			Lease: "—", Reserved: hasIP(reservedByIP, ip.String()),
 		}
 	}

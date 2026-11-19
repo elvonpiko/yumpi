@@ -19,15 +19,15 @@ func TestAssembleLeasesStationsAndBypass(t *testing.T) {
 		DHCPStart: netip.MustParseAddr("10.23.45.100"), DHCPEnd: netip.MustParseAddr("10.23.45.200"),
 	}
 	now := time.Unix(1_700_000_000, 0)
-	leases := "1700003600 aa:bb:cc:dd:ee:01 10.23.46.50 Phone *\n1700080000 98:28:a6:48:a4:0f 10.23.45.145 DESKTOP *\n"
+	leases := "1700003600 aa:bb:cc:dd:ee:01 10.23.46.50 Phone *\n1700080000 98:28:a6:48:a4:0f 10.23.45.145 DESKTOP *\n1700080000 aa:bb:cc:dd:ee:09 10.23.46.80 Left *\n"
 	stations := "Station aa:bb:cc:dd:ee:01 (on wlan0)\n"
 	neigh := "10.23.45.145 dev eth0 lladdr 98:28:a6:48:a4:0f REACHABLE\n10.23.45.1 dev eth0 lladdr 82:9a:a7:54:51:30 REACHABLE\n10.23.45.201 dev eth0 lladdr 11:22:33:44:55:66 STALE\n"
 	st := state.State{BypassIPs: []string{"10.23.45.145"}, BlockedMACs: []string{"aa:bb:cc:dd:ee:01"}}
 	snap := Assemble(now, wifi, lan, []netip.Addr{wifi.Gateway, lan.Gateway}, netip.MustParseAddr("10.23.45.1"), leases, stations, neigh, st)
-	if snap.LeasesUsed != 2 || snap.Online != 3 || snap.Expiring != 1 {
+	if snap.LeasesUsed != 3 || snap.Online != 2 || snap.Expiring != 1 || len(snap.Devices) != 2 {
 		t.Fatalf("counts leases=%d online=%d expiring=%d devices=%d", snap.LeasesUsed, snap.Online, snap.Expiring, len(snap.Devices))
 	}
-	var phone, desk, static *Device
+	var phone, desk *Device
 	for i := range snap.Devices {
 		d := &snap.Devices[i]
 		switch d.IP {
@@ -36,7 +36,9 @@ func TestAssembleLeasesStationsAndBypass(t *testing.T) {
 		case "10.23.45.145":
 			desk = d
 		case "10.23.45.201":
-			static = d
+			t.Fatal("a wired neighbor without a lease is not a YumPi client")
+		case "10.23.46.80":
+			t.Fatal("a Wi-Fi lease without a connection should stay off the list")
 		case "10.23.45.1":
 			t.Fatal("upstream router should be hidden")
 		}
@@ -46,8 +48,5 @@ func TestAssembleLeasesStationsAndBypass(t *testing.T) {
 	}
 	if desk == nil || desk.VPN || desk.Name != "DESKTOP" || !desk.Online {
 		t.Fatalf("desk %+v", desk)
-	}
-	if static == nil || !static.Online || static.Source != "lan" || !static.VPN {
-		t.Fatalf("static %+v", static)
 	}
 }

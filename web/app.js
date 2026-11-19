@@ -67,10 +67,11 @@ function renderDevices() {
   const q = ($("q").value || "").toLowerCase();
   const body = $("rows");
   body.replaceChildren();
-  const list = (data.devices || []).filter((d) => (d.name + " " + d.ip + " " + d.mac).toLowerCase().includes(q));
+  const list = (data.devices || []).filter((d) => d.online && (d.name + " " + d.ip + " " + d.mac).toLowerCase().includes(q));
   if (!list.length) {
     const tr = document.createElement("tr");
-    const td = el("td", "empty", data.devices && data.devices.length ? "No matches." : "No devices yet. Join the Wi-Fi, or plug into Ethernet.");
+    const connected = (data.devices || []).some((d) => d.online);
+    const td = el("td", "empty", connected ? "No matches." : "Nobody is connected right now.");
     td.colSpan = 6;
     tr.append(td);
     body.append(tr);
@@ -84,21 +85,24 @@ function renderDevices() {
     sw.className = "sw";
     sw.type = "checkbox";
     sw.checked = !!d.vpn;
+    const label = el("span", "route-label", d.vpn ? "Mullvad" : "Direct");
     sw.setAttribute("aria-label", (d.vpn ? "Mullvad" : "Direct") + " for " + d.name);
     sw.addEventListener("change", async () => {
       busy = true;
+      label.textContent = sw.checked ? "Mullvad" : "Direct";
       try {
         await api("/api/device/vpn", { ip: d.ip, enabled: sw.checked });
-        flash(sw.checked ? d.ip + " is on Mullvad" : d.ip + " is direct");
+        flash(sw.checked ? d.name + " goes through Mullvad" : d.name + " uses your normal connection");
         await refresh();
       } catch (err) {
         sw.checked = !sw.checked;
+        label.textContent = sw.checked ? "Mullvad" : "Direct";
         flash(err.message);
       } finally {
         busy = false;
       }
     });
-    route.append(sw);
+    route.append(sw, label);
     const status = document.createElement("td");
     const st = el("span", "st");
     st.append(el("i", "dot " + dotClass(d)), document.createTextNode(statusLabel(d)));

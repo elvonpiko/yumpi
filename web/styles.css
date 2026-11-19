@@ -112,6 +112,7 @@ td:first-child { font-weight: 600; }
 .field span { font: 500 11px "DM Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
 .err { color: var(--red); font-size: 14px; min-height: 1.2em; margin: 0; }
 .flash { min-height: 1.4em; margin: 8px 0 0; color: var(--mute); font-size: 14px; }
+.route-label { margin-left: 8px; font-size: 13px; color: var(--mute); }
 .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .empty { color: var(--mute); font-weight: 400; }
 .boot { padding: 48px 24px; color: var(--mute); font-family: "DM Mono", monospace; }
