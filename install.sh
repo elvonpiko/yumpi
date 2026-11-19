@@ -14,6 +14,18 @@ fi
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'yumpi: %s\n' "$*" >&2; exit 1; }
 
+pull_image() {
+  local image="$1" i
+  for i in 1 2 3 4 5; do
+    if docker pull "$image"; then
+      return 0
+    fi
+    log "Registry lookup failed, retrying ${image} (${i}/5)"
+    sleep 3
+  done
+  die "could not pull ${image}"
+}
+
 gen() {
   local n="$1" i c out=""
   local chars=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
@@ -132,8 +144,8 @@ printf 'd /etc/yumpi 0700 root root -\nd /var/lib/yumpi 0700 root root -\nd /run
 log "Pulling base images"
 # BuildKit resolves registry DNS in its own namespace, which Mullvad rejects.
 # The daemon itself can pull, and the legacy builder then reuses those images.
-docker pull golang:1.27-bookworm
-docker pull debian:trixie-slim
+pull_image golang:1.27-bookworm
+pull_image debian:trixie-slim
 log "Building the container before touching the running network"
 DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose -f "$ROOT/compose.yml" build
 
