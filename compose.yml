@@ -1,6 +1,8 @@
 services:
   yumpi:
-    build: .
+    build:
+      context: .
+      network: host
     image: yumpi:local
     container_name: yumpi
     network_mode: host
