@@ -35,6 +35,16 @@ ensure_image() {
   pull_image "$image"
 }
 
+# NetworkManager rewrites resolv.conf with the upstream DHCP servers.
+# Mullvad rejects those queries, and docker build copies this file in.
+pin_mullvad_dns() {
+  ip link show wg0-mullvad >/dev/null 2>&1 || return 0
+  if [[ -L /etc/resolv.conf ]]; then
+    rm -f /etc/resolv.conf
+  fi
+  printf 'nameserver 10.64.0.1\n' > /etc/resolv.conf
+}
+
 gen() {
   local n="$1" i c out=""
   local chars=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
@@ -95,7 +105,9 @@ uninstall() {
   legacy_cleanup
   if [[ "${1:-}" == "--purge" ]]; then
     rm -rf /etc/yumpi /var/lib/yumpi /run/yumpi
-    rm -f /etc/tmpfiles.d/yumpi.conf /etc/sysctl.d/99-yumpi.conf /etc/NetworkManager/conf.d/99-yumpi-unmanaged.conf
+    rm -f /etc/tmpfiles.d/yumpi.conf /etc/sysctl.d/99-yumpi.conf \
+    /etc/NetworkManager/conf.d/99-yumpi-unmanaged.conf \
+    /etc/NetworkManager/conf.d/99-yumpi-dns.conf
   fi
   log "YumPi is stopped. Mullvad and Docker are still installed."
 }
@@ -141,9 +153,11 @@ rfkill unblock wifi || true
 if command -v nmcli >/dev/null 2>&1; then
   mkdir -p /etc/NetworkManager/conf.d
   printf '[keyfile]\nunmanaged-devices=interface-name:%s\n' "$WIFI_IF" > /etc/NetworkManager/conf.d/99-yumpi-unmanaged.conf
+  printf '[main]\ndns=none\nrc-manager=unmanaged\n' > /etc/NetworkManager/conf.d/99-yumpi-dns.conf
   nmcli dev set "$WIFI_IF" managed no >/dev/null 2>&1 || true
   systemctl reload NetworkManager >/dev/null 2>&1 || true
 fi
+pin_mullvad_dns
 
 mkdir -p /etc/yumpi /var/lib/yumpi /run/yumpi
 chmod 700 /etc/yumpi /var/lib/yumpi
@@ -155,6 +169,7 @@ log "Pulling base images"
 # The daemon itself can pull, and the legacy builder then reuses those images.
 ensure_image golang:1.27-bookworm
 ensure_image debian:trixie-slim
+pin_mullvad_dns
 log "Building the container before touching the running network"
 # The classic builder reuses local images. BuildKit's own resolver is
 # rejected by Mullvad, so keep it off for this build.
