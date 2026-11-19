@@ -223,6 +223,7 @@ if [[ ! -f /etc/yumpi/config.toml ]]; then
     YUMPI_WIFI_PASSPHRASE="$(gen 16)"
     GENERATED_WIFI=1
   fi
+  export YUMPI_ADMIN_PASSWORD YUMPI_WIFI_PASSPHRASE
   model="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"
   docker run --rm \
     -e YUMPI_ADMIN_PASSWORD -e YUMPI_WIFI_PASSPHRASE \
