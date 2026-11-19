@@ -40,7 +40,7 @@ func TestLoginCookieAndDevicePolicy(t *testing.T) {
 	}
 	health.Body.Close()
 
-	for _, path := range []string{"/", "/favicon.svg", "/styles.css", "/app.js", "/fonts/DMMono-Regular.ttf"} {
+	for _, path := range []string{"/", "/favicon.svg", "/favicon.png", "/favicon-180.png", "/styles.css", "/app.js", "/fonts/DMMono-Regular.ttf"} {
 		page, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
