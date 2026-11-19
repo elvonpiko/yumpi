@@ -165,11 +165,14 @@ chmod 750 /run/yumpi
 printf 'd /etc/yumpi 0700 root root -\nd /var/lib/yumpi 0700 root root -\nd /run/yumpi 0750 root root -\n' > /etc/tmpfiles.d/yumpi.conf
 
 log "Pulling base images"
+pin_mullvad_dns
+# dockerd remembers the resolver it saw at startup. NetworkManager can
+# change that file afterwards, so restart once the Mullvad resolver is in place.
+systemctl restart docker
 # BuildKit resolves registry DNS in its own namespace, which Mullvad rejects.
 # The daemon itself can pull, and the legacy builder then reuses those images.
 ensure_image golang:1.27-bookworm
 ensure_image debian:trixie-slim
-pin_mullvad_dns
 log "Building the container before touching the running network"
 # The classic builder reuses local images. BuildKit's own resolver is
 # rejected by Mullvad, so keep it off for this build.
