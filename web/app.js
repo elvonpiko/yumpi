@@ -41,6 +41,7 @@ function showApp() {
   $("boot").hidden = true;
   $("login").hidden = true;
   $("app").hidden = false;
+  showPage();
 }
 
 function flash(msg) {
@@ -231,12 +232,22 @@ $("signout").addEventListener("click", async () => {
 
 $("q").addEventListener("input", () => { if (data) renderDevices(); });
 
-document.querySelectorAll("[data-nav]").forEach((a) => {
-  a.addEventListener("click", () => {
-    document.querySelectorAll("[data-nav]").forEach((n) => n.classList.remove("on"));
-    a.classList.add("on");
+const pages = ["overview", "devices", "dhcp", "settings"];
+
+function showPage() {
+  const raw = location.hash.replace("#", "");
+  const name = pages.includes(raw) ? raw : "overview";
+  for (const p of pages) {
+    const node = $("page-" + p);
+    if (node) node.hidden = p !== name;
+  }
+  document.querySelectorAll("[data-nav]").forEach((n) => {
+    n.classList.toggle("on", n.dataset.nav === name);
   });
-});
+}
+
+window.addEventListener("hashchange", showPage);
+showPage();
 
 $("dhcp-sw").addEventListener("change", async () => {
   const on = $("dhcp-sw").checked;

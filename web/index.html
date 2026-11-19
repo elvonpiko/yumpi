@@ -40,42 +40,51 @@
 
 <div id="app" hidden>
   <header class="nav"><div class="in">
-    <a class="brand" href="#top"><svg><use href="#mark"/></svg><span>Yum<b>pi</b></span></a>
+    <a class="brand" href="#overview"><svg><use href="#mark"/></svg><span>Yum<b>pi</b></span></a>
     <nav>
-      <a class="on" href="#top" data-nav="top">Overview</a>
+      <a class="on" href="#overview" data-nav="overview">Overview</a>
       <a href="#devices" data-nav="devices">Devices</a>
       <a href="#dhcp" data-nav="dhcp">DHCP</a>
       <a href="#settings" data-nav="settings">Settings</a>
     </nav>
     <span class="live" id="live"><i></i><span>Checking</span></span>
     <button type="button" class="textlink" id="signout">Sign out</button>
-    <a class="btn" href="#reserve">Add device</a>
+    <a class="btn" href="#dhcp">Add device</a>
   </div></header>
 
-  <main class="in" id="top">
-    <div class="head">
-      <h1>Your network, simply.</h1>
-      <p>See every device, choose what goes through Mullvad, and keep DHCP running from one Raspberry Pi.</p>
-    </div>
-    <div class="stats">
-      <div><b id="stat-online">—</b><small>Devices online</small></div>
-      <div><b id="stat-leases">—</b><small id="stat-lease-label">Leases</small></div>
-      <div><b id="stat-expiring">—</b><small>Expiring soon</small></div>
-    </div>
+  <main class="in">
     <p class="flash" id="flash" role="status"></p>
 
-    <section id="devices">
-      <div class="hd"><h2>Devices</h2><input id="q" placeholder="Search" aria-label="Search devices"></div>
+    <div id="page-overview" class="page">
+      <div class="head">
+        <h1>Your network, simply.</h1>
+        <p>See every device, choose what goes through Mullvad, and keep DHCP running from one Raspberry Pi.</p>
+      </div>
+      <div class="stats">
+        <div><b id="stat-online">—</b><small>Devices online</small></div>
+        <div><b id="stat-leases">—</b><small id="stat-lease-label">Leases</small></div>
+        <div><b id="stat-expiring">—</b><small>Expiring soon</small></div>
+      </div>
+    </div>
+
+    <div id="page-devices" class="page" hidden>
+      <div class="head">
+        <h1>Devices.</h1>
+        <p>Each switch sends that device through Mullvad. Off means it uses the direct path.</p>
+      </div>
+      <div class="hd"><h2>On the network</h2><input id="q" placeholder="Search" aria-label="Search devices"></div>
       <div class="tw"><table>
         <thead><tr><th>Name</th><th>IP address</th><th>MAC</th><th>Lease</th><th>Route</th><th>Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
-    </section>
+    </div>
 
-    <section id="dhcp" class="dhcp">
-      <div>
-        <h2 style="margin-bottom:12px">DHCP</h2>
-        <p class="copy">Hand out addresses on the access point and the wired LAN, or pin a device to one.</p>
+    <div id="page-dhcp" class="page" hidden>
+      <div class="head">
+        <h1>DHCP.</h1>
+        <p>Hand out addresses on the access point and the wired LAN, or pin a device to one.</p>
+      </div>
+      <div class="dhcp">
         <form id="reserve" class="stack">
           <label class="field"><span>Name</span><input name="name" maxlength="63" placeholder="Living room" autocomplete="off"></label>
           <label class="field"><span>MAC address</span><input name="mac" required placeholder="aa:bb:cc:dd:ee:ff" spellcheck="false" autocomplete="off"></label>
@@ -83,58 +92,63 @@
           <div><button class="btn o" type="submit">Add reservation</button></div>
           <p class="err" id="reserve-err" role="alert"></p>
         </form>
-      </div>
-      <div>
-        <div class="hd" style="margin:0">
-          <span class="lbl" id="pool-label">Address pool</span>
-          <input class="sw" id="dhcp-sw" type="checkbox" aria-label="DHCP server enabled">
+        <div>
+          <div class="hd" style="margin:0">
+            <span class="lbl" id="pool-label">Address pool</span>
+            <input class="sw" id="dhcp-sw" type="checkbox" aria-label="DHCP server enabled">
+          </div>
+          <div class="bar"><i id="pool-bar"></i></div>
+          <dl class="kv">
+            <dt>Wi-Fi range</dt><dd id="wifi-range">—</dd>
+            <dt>Wi-Fi gateway</dt><dd id="wifi-gw">—</dd>
+            <dt>LAN range</dt><dd id="lan-range">—</dd>
+            <dt>LAN gateway</dt><dd id="lan-gw">—</dd>
+            <dt>DNS</dt><dd id="dns">—</dd>
+            <dt>Lease time</dt><dd id="lease">—</dd>
+          </dl>
         </div>
-        <div class="bar"><i id="pool-bar"></i></div>
-        <dl class="kv">
-          <dt>Wi-Fi range</dt><dd id="wifi-range">—</dd>
-          <dt>Wi-Fi gateway</dt><dd id="wifi-gw">—</dd>
-          <dt>LAN range</dt><dd id="lan-range">—</dd>
-          <dt>LAN gateway</dt><dd id="lan-gw">—</dd>
-          <dt>DNS</dt><dd id="dns">—</dd>
-          <dt>Lease time</dt><dd id="lease">—</dd>
-        </dl>
       </div>
-    </section>
+    </div>
 
-    <section id="settings" class="dhcp">
-      <div>
-        <h2 style="margin-bottom:12px">Tunnel</h2>
-        <p class="copy">Devices use Mullvad unless you switch one of them to the direct path.</p>
-        <button class="btn" type="button" id="vpn-btn">Connect</button>
-        <p class="err" id="vpn-err" role="alert"></p>
+    <div id="page-settings" class="page" hidden>
+      <div class="head">
+        <h1>Settings.</h1>
+        <p>The tunnel is the default path. The access point is the Wi-Fi clients join.</p>
       </div>
-      <div>
-        <dl class="kv">
-          <dt>Status</dt><dd id="vpn-state">—</dd>
-          <dt>Relay</dt><dd id="vpn-relay">—</dd>
-          <dt>Location</dt><dd id="vpn-loc">—</dd>
-          <dt>Exit</dt><dd id="vpn-ip">—</dd>
-        </dl>
-        <form id="loc-form" class="stack">
-          <label class="field"><span>Country</span><select id="country" name="country"></select></label>
-          <label class="field"><span>City</span><select id="city" name="city"></select></label>
-          <div><button class="btn" type="submit">Switch</button></div>
+      <div class="dhcp">
+        <div>
+          <h2>Tunnel</h2>
+          <p class="copy">Devices use Mullvad unless you switch one of them to the direct path.</p>
+          <button class="btn" type="button" id="vpn-btn">Connect</button>
+          <p class="err" id="vpn-err" role="alert"></p>
+        </div>
+        <div>
+          <dl class="kv">
+            <dt>Status</dt><dd id="vpn-state">—</dd>
+            <dt>Relay</dt><dd id="vpn-relay">—</dd>
+            <dt>Location</dt><dd id="vpn-loc">—</dd>
+            <dt>Exit</dt><dd id="vpn-ip">—</dd>
+          </dl>
+          <form id="loc-form" class="stack">
+            <label class="field"><span>Country</span><select id="country" name="country"></select></label>
+            <label class="field"><span>City</span><select id="city" name="city"></select></label>
+            <div><button class="btn" type="submit">Switch</button></div>
+          </form>
+        </div>
+      </div>
+      <div class="dhcp">
+        <div>
+          <h2>Access point</h2>
+          <p class="copy" id="ap-copy">5 GHz Wi-Fi from this Pi. A new password reconnects everyone.</p>
+        </div>
+        <form id="wifi-form" class="stack">
+          <label class="field"><span>Network name</span><input id="ssid" name="ssid" required maxlength="32" autocomplete="off"></label>
+          <label class="field"><span>New password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep the current one"></label>
+          <div><button class="btn" type="submit">Apply</button></div>
+          <p class="err" id="wifi-err" role="alert"></p>
         </form>
       </div>
-    </section>
-
-    <section class="dhcp" id="wifi-sec">
-      <div>
-        <h2 style="margin-bottom:12px">Access point</h2>
-        <p class="copy" id="ap-copy">5 GHz Wi-Fi from this Pi. A new password reconnects everyone.</p>
-      </div>
-      <form id="wifi-form" class="stack">
-        <label class="field"><span>Network name</span><input id="ssid" name="ssid" required maxlength="32" autocomplete="off"></label>
-        <label class="field"><span>New password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep the current one"></label>
-        <div><button class="btn" type="submit">Apply</button></div>
-        <p class="err" id="wifi-err" role="alert"></p>
-      </form>
-    </section>
+    </div>
 
     <footer id="foot">YumPi</footer>
   </main>
