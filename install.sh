@@ -129,8 +129,13 @@ chmod 700 /etc/yumpi /var/lib/yumpi
 chmod 750 /run/yumpi
 printf 'd /etc/yumpi 0700 root root -\nd /var/lib/yumpi 0700 root root -\nd /run/yumpi 0750 root root -\n' > /etc/tmpfiles.d/yumpi.conf
 
+log "Pulling base images"
+# BuildKit resolves registry DNS in its own namespace, which Mullvad rejects.
+# The daemon itself can pull, and the legacy builder then reuses those images.
+docker pull golang:1.27-bookworm
+docker pull debian:trixie-slim
 log "Building the container before touching the running network"
-docker compose -f "$ROOT/compose.yml" build
+DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose -f "$ROOT/compose.yml" build
 
 if [[ ! -f /etc/yumpi/config.toml ]]; then
   if [[ -z "${YUMPI_LAN_CIDR:-}" || -z "${YUMPI_UPSTREAM:-}" ]]; then
