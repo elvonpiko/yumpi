@@ -23,6 +23,15 @@
     </g>
     <path d="M17.6 7.4c1.8-.7 3.1-2 3.6-3.6" fill="none" stroke="#c51a4a" stroke-width="1.5" stroke-linecap="round"/>
   </symbol>
+  <symbol id="i-wifi" viewBox="0 0 16 16">
+    <path d="M1.5 6.6a9 9 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M4 9.1a5.2 5.2 0 0 1 8 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="8" cy="12.1" r="1.05" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-eth" viewBox="0 0 16 16">
+    <rect x="2.2" y="2.2" width="11.6" height="7.2" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+    <path d="M5.2 9.4v3.2M8 9.4v3.2M10.8 9.4v3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  </symbol>
 </svg>
 <p id="boot" class="boot">Loading…</p>
 
@@ -67,16 +76,16 @@
         <h1>This network</h1>
         <p>Who is online, and whether their traffic goes through Mullvad.</p>
       </div>
-      <p class="warn" id="ov-warn" hidden>This Mullvad server is obfuscated, so sites can feel slow. Pick another city under Settings.</p>
       <div class="stats">
         <div><b id="stat-online">—</b><small>Devices online</small></div>
-        <div><b id="stat-leases">—</b><small id="stat-lease-label">Leases</small></div>
-        <div><b id="stat-expiring">—</b><small>Expiring soon</small></div>
+        <div><b id="stat-mullvad">—</b><small>Through Mullvad</small></div>
+        <div><b id="stat-direct">—</b><small>Direct</small></div>
       </div>
       <dl class="kv now">
         <dt>Relay</dt><dd id="ov-relay">—</dd>
         <dt>Location</dt><dd id="ov-loc">—</dd>
         <dt>Exit</dt><dd id="ov-exit">—</dd>
+        <dt>Leases</dt><dd id="ov-leases">—</dd>
       </dl>
     </div>
 
@@ -88,7 +97,7 @@
       </div>
       <div class="hd"><h2>Online</h2><input id="q" placeholder="Search" aria-label="Search devices"></div>
       <div class="tw"><table>
-        <thead><tr><th>Name</th><th>IP address</th><th>MAC</th><th>Use</th><th>Lease</th><th>Route</th><th>Status</th></tr></thead>
+        <thead><tr><th>Name</th><th>Link</th><th>IP address</th><th>MAC</th><th>Use</th><th>Lease</th><th>Route</th><th>Status</th><th></th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
     </div>
@@ -103,7 +112,7 @@
         <form id="reserve" class="stack">
           <label class="field"><span>Name</span><input name="name" maxlength="63" placeholder="Living room" autocomplete="off"></label>
           <label class="field"><span>MAC address</span><input name="mac" required placeholder="aa:bb:cc:dd:ee:ff" spellcheck="false" autocomplete="off"></label>
-          <label class="field"><span>IP address</span><input name="ip" required placeholder="10.23.46.10" spellcheck="false" autocomplete="off"></label>
+          <label class="field"><span>IP address</span><input name="ip" required placeholder="192.168.1.10" spellcheck="false" autocomplete="off"></label>
           <div><button class="btn o" type="submit">Add reservation</button></div>
           <p class="err" id="reserve-err" role="alert"></p>
         </form>
@@ -134,7 +143,7 @@
       <div class="dhcp">
         <div>
           <h2>Tunnel</h2>
-          <p class="copy">Switching city pins it. YumPi returns to that city after a restart.</p>
+          <p class="copy">Connect and Disconnect start or stop the tunnel. They keep the country already pinned. To change country, use the list on the right.</p>
           <button class="btn" type="button" id="vpn-btn">Connect</button>
           <button class="btn o" type="button" id="unpin-btn">Any city</button>
           <p class="err" id="vpn-err" role="alert"></p>
@@ -150,7 +159,7 @@
           <form id="loc-form" class="stack">
             <label class="field"><span>Country</span><select id="country" name="country"></select></label>
             <label class="field"><span>City</span><select id="city" name="city"></select></label>
-            <div><button class="btn" type="submit">Switch</button></div>
+            <div><button class="btn" type="submit">Use this location</button></div>
           </form>
         </div>
       </div>

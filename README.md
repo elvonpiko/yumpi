@@ -12,7 +12,7 @@ The control plane is one Go program in a container. The Pi keeps Docker, the Mul
 
 ## What it does
 
-- Wi-Fi clients use `10.23.46.1/24`. Wired clients that lease from the Pi use the Pi as their gateway.
+- The installer reads the wired network already on the Pi and asks before it saves it. Wi-Fi uses a separate subnet that does not overlap that network. Wired clients that lease from the Pi use the Pi as their gateway.
 - Lookups go to Mullvad DNS (`10.64.0.1`), so they follow the tunnel.
 - A device set to direct keeps that choice by its MAC, and its DNS goes to `1.1.1.1`.
 - If the tunnel is down, every client uses the direct path instead of losing the network.
@@ -27,14 +27,13 @@ The control plane is one Go program in a container. The Pi keeps Docker, the Mul
 sudo ./install.sh
 ```
 
-The script installs Docker and Mullvad when they are missing, builds the image, and starts the container. It asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`.
+The script installs Docker and Mullvad when they are missing, builds the image, and starts the container. It finds the wired address and gateway, suggests a Wi-Fi subnet that does not overlap them, and asks you to confirm. It also asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`.
 
 After it finishes:
 
 1. Log the host into Mullvad once: `mullvad account login`. The installer never sees the account.
 2. Join the Wi-Fi it printed and confirm a client has internet.
-3. Give the Pi a fixed address on ethernet, for example `10.23.45.2/24` with gateway `10.23.45.1`. Set that on the Pi.
-4. Turn DHCP off on the upstream router when the Pi should own the wired LAN. Leave the router itself on. Wired computers should reconnect so they take an address from the Pi.
+3. Keep the wired address the installer found. If the upstream router still hands out addresses, give the Pi a fixed address on that same network and turn the router's DHCP off when the Pi should own the wired LAN. Leave the router itself on. Wired computers should reconnect so they take an address from the Pi.
 
 These variables skip the prompts:
 
@@ -42,6 +41,8 @@ These variables skip the prompts:
 - `YUMPI_WIFI_PASSPHRASE`
 - `YUMPI_ADMIN_PASSWORD`
 - `YUMPI_COUNTRY` (default `US`)
+- `YUMPI_LAN_CIDR` and `YUMPI_UPSTREAM`
+- `YUMPI_WIFI_CIDR`
 
 ## Develop
 

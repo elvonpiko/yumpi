@@ -46,7 +46,7 @@ type Client struct {
 	cachedAt time.Time
 }
 
-var locationRE = regexp.MustCompile(`^[a-z]{2}(?: [a-z]{3})?$`)
+var locationRE = regexp.MustCompile(`^[a-z]{2}(?: [a-z0-9]{2,8})?$`)
 
 func (c *Client) Status(ctx context.Context) (Status, error) {
 	out, err := c.run(ctx, "status", "-j")
@@ -163,8 +163,9 @@ func ParseStatus(raw string) (Status, error) {
 }
 
 var (
-	countryLine = regexp.MustCompile(`^([A-Za-z][A-Za-z .'-]*?) \(([a-z]{2})\)$`)
-	cityLine    = regexp.MustCompile(`^\t(.+?) \(([a-z]{3})\) @`)
+	countryLine = regexp.MustCompile(`^([^ \t].*?) \(([a-z]{2})\)$`)
+	// Mullvad indents cities with a tab or spaces, and some versions omit the coordinates.
+	cityLine = regexp.MustCompile(`^[ \t]+(.+?) \(([a-z0-9]{2,8})\)(?: @[^@]*)?$`)
 )
 
 // ParseRelays reads `mullvad relay list`.

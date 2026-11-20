@@ -178,13 +178,67 @@ log "Building the container before touching the running network"
 # rejected by Mullvad, so keep it off for this build.
 DOCKER_BUILDKIT=0 docker build --network=host -t yumpi:local "$ROOT"
 
+ip_in_cidr() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import ipaddress,sys; net=ipaddress.ip_network(sys.argv[2], strict=False); raise SystemExit(0 if ipaddress.ip_address(sys.argv[1]) in net else 1)' "$1" "$2"
+    return
+  fi
+  [[ "${1%.*}" == "${2%%/*}" ]]
+}
+
+# A /24 for the access point that is not the wired network.
+suggest_wifi_subnet() {
+  local cidr="$1" ip="${1%%/*}" a b c wa wb wc try addr
+  IFS=. read -r a b c _ <<<"$ip"
+  wa=$a
+  wb=$b
+  wc=$c
+  for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    wc=$((wc + 1))
+    if (( wc > 254 )); then wc=1; wb=$((wb + 1)); fi
+    if (( wb > 254 )); then wb=0; wa=$((wa + 1)); fi
+    if (( wa > 223 )); then wa=10; wb=66; wc=1; fi
+    addr="${wa}.${wb}.${wc}.1"
+    if ! ip_in_cidr "$addr" "$cidr"; then
+      printf '%s/24 %s.%s.%s.50 %s.%s.%s.200\n' "$addr" "$wa" "$wb" "$wc" "$wa" "$wb" "$wc"
+      return 0
+    fi
+  done
+  printf '10.66.0.1/24 10.66.0.50 10.66.0.200\n'
+}
+
+confirm() {
+  local reply
+  if [[ ! -t 0 ]]; then
+    return 0
+  fi
+  read -r -p "$1 [Y/n] " reply
+  [[ -z "$reply" || "$reply" =~ ^[Yy] ]]
+}
+
 if [[ ! -f /etc/yumpi/config.toml ]]; then
+  lan_preset=0
+  wifi_preset=0
+  [[ -n "${YUMPI_LAN_CIDR:-}" && -n "${YUMPI_UPSTREAM:-}" ]] && lan_preset=1
+  [[ -n "${YUMPI_WIFI_CIDR:-}" ]] && wifi_preset=1
   if [[ -z "${YUMPI_LAN_CIDR:-}" || -z "${YUMPI_UPSTREAM:-}" ]]; then
     route="$(ip -4 route show default | head -n1)"
     [[ -n "$route" ]] || die "no default route; set YUMPI_LAN_CIDR and YUMPI_UPSTREAM"
     YUMPI_LAN_IF="${YUMPI_LAN_IF:-$(awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}' <<<"$route")}"
     YUMPI_UPSTREAM="${YUMPI_UPSTREAM:-$(awk '{for(i=1;i<=NF;i++) if($i=="via") {print $(i+1); exit}}' <<<"$route")}"
     YUMPI_LAN_CIDR="${YUMPI_LAN_CIDR:-$(ip -4 -o addr show dev "$YUMPI_LAN_IF" | awk '{print $4; exit}')}"
+  fi
+  YUMPI_LAN_IF="${YUMPI_LAN_IF:-eth0}"
+  if [[ "$lan_preset" == 0 && -t 0 ]]; then
+    printf 'Wired network found on %s\n  address %s\n  gateway %s\n' "$YUMPI_LAN_IF" "$YUMPI_LAN_CIDR" "$YUMPI_UPSTREAM"
+    if ! confirm "Use this wired network?"; then
+      read -r -p "Interface [$YUMPI_LAN_IF]: " reply
+      YUMPI_LAN_IF="${reply:-$YUMPI_LAN_IF}"
+      read -r -p "Address and prefix, for example 192.168.0.2/24: " YUMPI_LAN_CIDR
+      read -r -p "Gateway, for example 192.168.0.1: " YUMPI_UPSTREAM
+      YUMPI_LAN_DHCP_START=""
+      YUMPI_LAN_DHCP_END=""
+    fi
   fi
   if [[ -z "${YUMPI_LAN_DHCP_START:-}" || -z "${YUMPI_LAN_DHCP_END:-}" ]]; then
     [[ "$YUMPI_LAN_CIDR" == */24 ]] || die "set YUMPI_LAN_DHCP_START and YUMPI_LAN_DHCP_END for ${YUMPI_LAN_CIDR}"
@@ -197,6 +251,33 @@ if [[ ! -f /etc/yumpi/config.toml ]]; then
       YUMPI_LAN_DHCP_END="${YUMPI_LAN_DHCP_END:-$a.$b.$c.80}"
     fi
   fi
+  if [[ "$lan_preset" == 0 && -t 0 ]]; then
+    printf 'Wired addresses: %s – %s\n' "$YUMPI_LAN_DHCP_START" "$YUMPI_LAN_DHCP_END"
+    if ! confirm "Give wired devices addresses in that range?"; then
+      read -r -p "First address: " YUMPI_LAN_DHCP_START
+      read -r -p "Last address: " YUMPI_LAN_DHCP_END
+    fi
+  fi
+  if [[ "$wifi_preset" == 0 ]]; then
+    read -r YUMPI_WIFI_CIDR YUMPI_WIFI_DHCP_START YUMPI_WIFI_DHCP_END < <(suggest_wifi_subnet "$YUMPI_LAN_CIDR")
+  fi
+  if [[ "$wifi_preset" == 0 && -t 0 ]]; then
+    printf 'Wi-Fi will use %s so it does not overlap %s\n  addresses %s – %s\n' \
+      "$YUMPI_WIFI_CIDR" "${YUMPI_LAN_CIDR%%/*}/${YUMPI_LAN_CIDR##*/}" "$YUMPI_WIFI_DHCP_START" "$YUMPI_WIFI_DHCP_END"
+    if ! confirm "Use this Wi-Fi network?"; then
+      read -r -p "Wi-Fi address and prefix, for example 192.168.1.1/24: " YUMPI_WIFI_CIDR
+      read -r -p "First Wi-Fi address: " YUMPI_WIFI_DHCP_START
+      read -r -p "Last Wi-Fi address: " YUMPI_WIFI_DHCP_END
+    fi
+  fi
+  if [[ -z "${YUMPI_WIFI_DHCP_START:-}" || -z "${YUMPI_WIFI_DHCP_END:-}" ]]; then
+    wifi_base="${YUMPI_WIFI_CIDR%%/*}"
+    wifi_base="${wifi_base%.*}"
+    YUMPI_WIFI_DHCP_START="${YUMPI_WIFI_DHCP_START:-$wifi_base.50}"
+    YUMPI_WIFI_DHCP_END="${YUMPI_WIFI_DHCP_END:-$wifi_base.200}"
+  fi
+  log "Wired ${YUMPI_LAN_CIDR} via ${YUMPI_UPSTREAM} on ${YUMPI_LAN_IF}"
+  log "Wi-Fi ${YUMPI_WIFI_CIDR}"
   if [[ -t 0 && -z "${YUMPI_SSID:-}" ]]; then
     read -r -p "Wi-Fi name [YumPi]: " YUMPI_SSID
   fi
@@ -236,9 +317,9 @@ if [[ ! -f /etc/yumpi/config.toml ]]; then
       -country "$COUNTRY" \
       -channel "${YUMPI_CHANNEL:-36}" \
       -wifi-if "$WIFI_IF" \
-      -wifi-cidr "${YUMPI_WIFI_CIDR:-10.23.46.1/24}" \
-      -wifi-dhcp-start "${YUMPI_WIFI_DHCP_START:-10.23.46.50}" \
-      -wifi-dhcp-end "${YUMPI_WIFI_DHCP_END:-10.23.46.200}" \
+      -wifi-cidr "$YUMPI_WIFI_CIDR" \
+      -wifi-dhcp-start "$YUMPI_WIFI_DHCP_START" \
+      -wifi-dhcp-end "$YUMPI_WIFI_DHCP_END" \
       -lan-if "${YUMPI_LAN_IF:-eth0}" \
       -lan-cidr "$YUMPI_LAN_CIDR" \
       -lan-dhcp-start "$YUMPI_LAN_DHCP_START" \

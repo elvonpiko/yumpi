@@ -37,3 +37,14 @@ func TestParseRelays(t *testing.T) {
 		t.Fatalf("%+v", got[1])
 	}
 }
+
+func TestParseRelaysWithoutCoordinates(t *testing.T) {
+	raw := "Sweden (se)\n    Stockholm (sto)\n        se-sto-wg-001 (1.2.3.4) - hosted by Mullvad (Mullvad-owned)\n    Gothenburg (got)\nFrance (fr)\n\tParis (par)\n"
+	got := ParseRelays(raw)
+	if len(got) != 2 || got[0].Code != "se" || len(got[0].Cities) != 2 || got[0].Cities[0].Code != "sto" || got[0].Cities[1].Code != "got" {
+		t.Fatalf("%+v", got)
+	}
+	if got[1].Code != "fr" || len(got[1].Cities) != 1 || got[1].Cities[0].Code != "par" {
+		t.Fatalf("%+v", got[1])
+	}
+}

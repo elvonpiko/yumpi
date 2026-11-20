@@ -72,14 +72,14 @@ function renderDevices() {
     const tr = document.createElement("tr");
     const connected = (data.devices || []).some((d) => d.online);
     const td = el("td", "empty", connected ? "No matches." : "Nobody is connected right now.");
-    td.colSpan = 7;
+    td.colSpan = 9;
     tr.append(td);
     body.append(tr);
     return;
   }
   for (const d of list) {
     const tr = document.createElement("tr");
-    tr.append(el("td", "", d.name), el("td", "mono", d.ip), el("td", "mono", d.mac), el("td", "mono", d.usage || "—"), el("td", "mono", d.lease || "—"));
+    tr.append(el("td", "", d.name), linkCell(d.source), el("td", "mono", d.ip), el("td", "mono", d.mac), el("td", "mono", d.usage || "—"), el("td", "mono", d.lease || "—"));
     const route = document.createElement("td");
     const sw = document.createElement("input");
     sw.className = "sw";
@@ -142,10 +142,27 @@ function renderDevices() {
       });
       actions.append(b);
     }
-    if (actions.childNodes.length) status.append(actions);
-    tr.append(route, status);
+    const action = document.createElement("td");
+    action.className = "act";
+    if (actions.childNodes.length) action.append(actions);
+    tr.append(route, status, action);
     body.append(tr);
   }
+}
+
+function linkCell(source) {
+  const td = document.createElement("td");
+  const wifi = source === "wifi";
+  const wrap = el("span", "link");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", wifi ? "#i-wifi" : "#i-eth");
+  svg.append(use);
+  wrap.append(svg, document.createTextNode(wifi ? "Wi-Fi" : "Ethernet"));
+  td.append(wrap);
+  return td;
 }
 
 function setText(id, value) {
@@ -158,10 +175,11 @@ function render() {
   const live = $("live");
   live.querySelector("i").className = data.mullvad.connected ? "" : "dot r";
   live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : "Direct";
+  const online = (data.devices || []).filter((d) => d.online);
+  const via = online.filter((d) => d.vpn).length;
   setText("stat-online", String(data.online));
-  setText("stat-leases", String(data.leases_used));
-  setText("stat-lease-label", "Leases of " + data.pool_size);
-  setText("stat-expiring", String(data.expiring));
+  setText("stat-mullvad", String(via));
+  setText("stat-direct", String(online.length - via));
   const pct = data.pool_size ? Math.round((data.leases_used / data.pool_size) * 100) : 0;
   setText("pool-label", data.dhcp_enabled ? "Address pool · " + pct + "% used" : "Address pool · off");
   $("pool-bar").style.width = (data.dhcp_enabled ? pct : 0) + "%";
@@ -180,9 +198,8 @@ function render() {
   setText("ov-relay", data.mullvad.connected ? data.mullvad.relay : "Not connected");
   setText("ov-loc", data.mullvad.location);
   setText("ov-exit", data.mullvad.exit_ip);
+  setText("ov-leases", data.leases_used + " of " + data.pool_size);
   setText("vpn-pin", data.mullvad.pinned || "Any city");
-  const warn = $("ov-warn");
-  if (warn) warn.hidden = !(data.mullvad.connected && data.mullvad.obfuscated);
   const gsw = $("guest-sw");
   const gssid = $("guest-ssid");
   if (gsw && document.activeElement !== gsw) gsw.checked = !!(data.guest && data.guest.enabled);
@@ -217,9 +234,13 @@ async function loadRelays() {
     const country = $("country");
     country.replaceChildren();
     for (const c of relays) country.append(new Option(c.name, c.code));
+    const pin = ((data && data.mullvad && data.mullvad.pinned) || "").trim().split(/\s+/);
+    const pinned = relays.find((c) => c.code === pin[0]);
     const us = relays.find((c) => c.code === "us");
-    if (us) country.value = "us";
+    if (pinned) country.value = pinned.code;
+    else if (us) country.value = "us";
     fillCities();
+    if (pinned && pin[1]) $("city").value = pin[1];
   } catch (err) {
     $("vpn-err").textContent = err.message;
   }
@@ -289,12 +310,28 @@ $("reserve").addEventListener("submit", async (ev) => {
   }
 });
 
+async function useLocation() {
+  const country = $("country").value;
+  const city = $("city").value;
+  if (!country) throw new Error("Choose a country.");
+  const location = city ? country + " " + city : country;
+  await api("/api/mullvad", { action: "location", location });
+  return location;
+}
+
 $("vpn-btn").addEventListener("click", async () => {
   $("vpn-err").textContent = "";
-  const action = data && data.mullvad.connected ? "disconnect" : "connect";
   try {
-    await api("/api/mullvad", { action });
-    flash(action === "connect" ? "Connecting" : "Disconnecting");
+    if (data && data.mullvad.connected) {
+      await api("/api/mullvad", { action: "disconnect" });
+      flash("Disconnecting");
+    } else if ($("country").value) {
+      await useLocation();
+      flash("Connecting to the location you chose");
+    } else {
+      await api("/api/mullvad", { action: "connect" });
+      flash("Connecting");
+    }
     setTimeout(() => refresh().catch(() => {}), 1200);
   } catch (err) {
     $("vpn-err").textContent = err.message;
@@ -306,13 +343,9 @@ $("country").addEventListener("change", fillCities);
 $("loc-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("vpn-err").textContent = "";
-  const country = $("country").value;
-  const city = $("city").value;
-  if (!country) return;
-  const location = city ? country + " " + city : country;
   try {
-    await api("/api/mullvad", { action: "location", location });
-    flash("Switching exit");
+    const location = await useLocation();
+    flash("Connecting to " + location);
     setTimeout(() => refresh().catch(() => {}), 1500);
   } catch (err) {
     $("vpn-err").textContent = err.message;
