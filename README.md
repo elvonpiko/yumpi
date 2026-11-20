@@ -10,6 +10,16 @@ YumPi runs a Wi-Fi access point, hands out addresses, and sends client traffic t
 
 The control plane is one Go program in a container. The Pi keeps Docker, the Mullvad daemon, and IP forwarding. The container runs hostapd, dnsmasq, and the firewall.
 
+## Dashboard
+
+The dashboard is on the Pi at `https://<pi>:8443`. These pictures use example devices.
+
+![Overview: who is online, and how many are using Mullvad](docs/overview.png)
+
+![Devices: Wi-Fi or Ethernet, and a switch for the direct path](docs/devices.png)
+
+![Settings: the country and city the tunnel uses](docs/settings.png)
+
 ## What it does
 
 - The installer reads the wired network already on the Pi and asks before it saves it. Wi-Fi uses a separate subnet that does not overlap that network. Wired clients that lease from the Pi use the Pi as their gateway.

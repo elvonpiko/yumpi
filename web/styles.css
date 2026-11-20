@@ -80,9 +80,9 @@ h2 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -.02em; }
 .field input, .field select { width: 100%; }
 .hd input:focus, .field input:focus, .field select:focus { border-color: var(--red); }
 .tw { overflow-x: auto; }
-table { width: 100%; min-width: 920px; border-collapse: collapse; }
-th { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--ink); font-weight: 500; }
-td { padding: 14px 12px 14px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table { width: 100%; min-width: 0; border-collapse: collapse; }
+th { text-align: left; padding: 10px 10px 10px 0; border-bottom: 1px solid var(--ink); font-weight: 500; }
+td { padding: 14px 10px 14px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 td:first-child { font-weight: 500; }
 .mono { font: 400 13.5px "DM Mono", ui-monospace, monospace; color: #333; }
 .st { display: inline-flex; align-items: center; gap: 8px; color: var(--mute); white-space: nowrap; }
@@ -131,6 +131,7 @@ footer { margin-top: 56px; padding: 20px 0 32px; border-top: 1px solid var(--lin
   }
   .nav nav a { flex: 1; justify-content: center; padding: 12px 4px; }
   .head { padding-top: 28px; }
+  table { min-width: 760px; }
   .stats { grid-template-columns: 1fr; }
   .stats div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
 }
