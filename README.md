@@ -78,10 +78,11 @@ docker compose build
 
 ```sh
 sudo ./install.sh --uninstall
-sudo ./install.sh --uninstall --purge
 ```
 
-`--purge` also deletes `/etc/yumpi`. Mullvad and Docker stay installed.
+This stops the container and removes what YumPi added: its firewall rules, its network settings, and its files, including the dashboard password and device choices. Wi-Fi is given back to the system.
+
+Docker and Mullvad stay installed, because they may already have been on the machine. To take the Pi off Mullvad as well, run `mullvad disconnect`.
 
 ## License
 

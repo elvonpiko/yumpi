@@ -69,7 +69,8 @@ legacy_cleanup() {
   nft delete table ip yumpi_nat 2>/dev/null || true
   nft delete table inet yumpi_policy 2>/dev/null || true
   nft delete table inet yumpi 2>/dev/null || true
-  remove_nft_handles input 'iifname "(wlan0|eth0)".*udp dport 67 accept'
+  remove_nft_handles input 'comment "yumpi"'
+  remove_nft_handles input 'iifname "(wlan0|wlan0_0|eth0)".*udp dport 67 accept'
   remove_nft_handles forward 'iifname "wlan0" oifname "wg0-mullvad"'
   remove_nft_handles forward 'iifname "wg0-mullvad" oifname "wlan0"'
   local rule
@@ -93,15 +94,24 @@ legacy_cleanup() {
 
 uninstall() {
   log "Stopping YumPi"
-  docker compose -f "$ROOT/compose.yml" down || true
+  docker compose -f "$ROOT/compose.yml" down --remove-orphans || true
+  docker rm -f yumpi >/dev/null 2>&1 || true
+  iw dev wlan0_0 del >/dev/null 2>&1 || true
   legacy_cleanup
-  if [[ "${1:-}" == "--purge" ]]; then
-    rm -rf /etc/yumpi /var/lib/yumpi /run/yumpi
-    rm -f /etc/tmpfiles.d/yumpi.conf /etc/sysctl.d/99-yumpi.conf \
+  rm -rf /etc/yumpi /var/lib/yumpi /run/yumpi
+  rm -f /etc/tmpfiles.d/yumpi.conf /etc/sysctl.d/99-yumpi.conf \
     /etc/NetworkManager/conf.d/99-yumpi-unmanaged.conf \
     /etc/NetworkManager/conf.d/99-yumpi-dns.conf
+  sysctl --system >/dev/null 2>&1 || true
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli dev set "${YUMPI_WIFI_IF:-wlan0}" managed yes >/dev/null 2>&1 || true
+    systemctl reload NetworkManager >/dev/null 2>&1 || true
   fi
-  log "YumPi is stopped. Mullvad and Docker are still installed."
+  docker rmi "$IMAGE" ghcr.io/elvonpiko/yumpi:latest yumpi:local yumpi:rollback >/dev/null 2>&1 || true
+  log "YumPi is removed."
+  log "The container, firewall rules, network settings, and files are gone. Wi-Fi belongs to the system again."
+  log "Docker and Mullvad are still installed. They may have been on this machine already."
+  log "To leave Mullvad as well: mullvad disconnect"
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
