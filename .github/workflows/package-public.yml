@@ -14,5 +14,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api --method PATCH /user/packages/container/yumpi -f visibility=public
-          gh api /user/packages/container/yumpi --jq '{name: .name, visibility: .visibility, url: .html_url}'
+          echo "packages visible to this token:"
+          gh api "/repos/elvonpiko/yumpi/packages?package_type=container" --jq '.[] | {name,visibility,html_url}' || true
+          gh api --method PATCH /repos/elvonpiko/yumpi/packages/container/yumpi -f visibility=public
+          gh api /repos/elvonpiko/yumpi/packages/container/yumpi --jq '{name: .name, visibility: .visibility, url: .html_url}'
