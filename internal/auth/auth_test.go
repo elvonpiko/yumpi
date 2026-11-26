@@ -42,3 +42,39 @@ func TestLoginSessionAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestChangePasswordKeepsCurrentSession(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(string(hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := m.Login("10.0.0.8", "correct-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := m.Login("10.0.0.9", "correct-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.HashIfCurrent("10.0.0.8", "wrong-password", "a-new-password-1"); err != ErrDenied {
+		t.Fatalf("got %v", err)
+	}
+	next, err := m.HashIfCurrent("10.0.0.8", "correct-password", "a-new-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.UseHash(next, keep)
+	if !m.Valid(keep) || m.Valid(other) {
+		t.Fatal("session set is wrong")
+	}
+	if _, err := m.Login("10.0.0.8", "correct-password"); err != ErrDenied {
+		t.Fatal("old password still works")
+	}
+	if _, err := m.Login("10.0.0.8", "a-new-password-1"); err != nil {
+		t.Fatal(err)
+	}
+}

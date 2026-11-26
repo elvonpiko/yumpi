@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -358,6 +359,32 @@ func (d *Daemon) SetDHCP(ctx context.Context, enabled bool) error {
 		return err
 	}
 	d.super.SetDHCP(enabled)
+	return nil
+}
+
+// SetPassword checks the current dashboard password and stores a new one.
+// The session in keep stays signed in. Other sessions are signed out.
+func (d *Daemon) SetPassword(ctx context.Context, remote, current, next, keep string) error {
+	if len(next) < 12 || len(next) > 72 {
+		return invalid("Use 12 to 72 characters.")
+	}
+	hash, err := d.auth.HashIfCurrent(remote, current, next)
+	if errors.Is(err, auth.ErrDenied) {
+		return invalid("Current password is incorrect.")
+	}
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	cfg := d.cfg
+	cfg.Auth.PasswordHash = hash
+	if err := config.Save(d.path, cfg); err != nil {
+		d.mu.Unlock()
+		return err
+	}
+	d.cfg = cfg
+	d.mu.Unlock()
+	d.auth.UseHash(hash, keep)
 	return nil
 }
 

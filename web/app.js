@@ -404,6 +404,19 @@ $("guest-form").addEventListener("submit", async (ev) => {
   }
 });
 
+$("password-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("password-err").textContent = "";
+  const f = new FormData(ev.target);
+  try {
+    await api("/api/password", { current: f.get("current"), next: f.get("next") });
+    ev.target.reset();
+    flash("Dashboard password changed");
+  } catch (err) {
+    $("password-err").textContent = err.message;
+  }
+});
+
 $("wifi-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("wifi-err").textContent = "";

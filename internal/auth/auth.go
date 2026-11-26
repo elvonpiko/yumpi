@@ -53,6 +53,38 @@ func HashPassword(password string) (string, error) {
 	return string(b), nil
 }
 
+// HashIfCurrent checks the current password and returns a hash of the next one.
+// It does not install that hash. A wrong current password counts toward the login limit.
+func (m *Manager) HashIfCurrent(remote, current, next string) (string, error) {
+	m.mu.Lock()
+	now := m.now()
+	if m.limited(remote, now) {
+		m.mu.Unlock()
+		return "", ErrLimited
+	}
+	have := append([]byte(nil), m.hash...)
+	m.mu.Unlock()
+	if bcrypt.CompareHashAndPassword(have, []byte(current)) != nil {
+		m.mu.Lock()
+		m.failures[remote] = append(m.recent(remote, m.now()), m.now())
+		m.mu.Unlock()
+		return "", ErrDenied
+	}
+	return HashPassword(next)
+}
+
+// UseHash installs a hash from HashIfCurrent and drops every session except keep.
+func (m *Manager) UseHash(hash, keep string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hash = []byte(hash)
+	for token := range m.sessions {
+		if token != keep {
+			delete(m.sessions, token)
+		}
+	}
+}
+
 // Login checks the password and returns a new session token.
 func (m *Manager) Login(remote, password string) (string, error) {
 	m.mu.Lock()

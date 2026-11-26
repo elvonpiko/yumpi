@@ -14,11 +14,11 @@ The control plane is one Go program in a container. The Pi keeps Docker, the Mul
 
 The dashboard is on the Pi at `https://<pi>:8443`. These pictures use example devices.
 
-![Overview: who is online, and how many are using Mullvad](docs/overview.png)
+![Overview: who is online, and that internet pauses if Mullvad drops](docs/overview.png)
 
 ![Devices: Wi-Fi or Ethernet, and a switch for the direct path](docs/devices.png)
 
-![Settings: the country and city the tunnel uses](docs/settings.png)
+![Settings: the tunnel, Wi-Fi, guest access, and the dashboard password](docs/settings.png)
 
 ## What it does
 
@@ -27,7 +27,7 @@ The dashboard is on the Pi at `https://<pi>:8443`. These pictures use example de
 - A device set to direct keeps that choice by its MAC, and its DNS goes to `1.1.1.1`.
 - If the tunnel is down, clients use the direct path. A setting can instead pause devices that are set to Mullvad until the tunnel is back. A device set to direct keeps that path.
 - Guest Wi-Fi can be turned on later. Guests stay on Mullvad and cannot reach the LAN or the dashboard.
-- The dashboard is HTTPS only, at `https://<pi>:8443`. Trust the Pi’s certificate once. Do not forward that port from the internet.
+- The dashboard is HTTPS only, at `https://<pi>:8443`. Trust the Pi’s certificate once. Do not forward that port from the internet. The sign-in password can be changed in Settings.
 
 ## Install
 

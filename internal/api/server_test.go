@@ -134,6 +134,83 @@ func TestLoginCookieAndDevicePolicy(t *testing.T) {
 	}
 }
 
+func TestPasswordChangeKeepsSession(t *testing.T) {
+	d, _ := newDaemon(t)
+	srv := httptest.NewServer(New(d, web.FS, nil))
+	defer srv.Close()
+	login, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"correct-password"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := login.Cookies()[0]
+	login.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/password", strings.NewReader(`{"current":"nope","next":"a-new-password-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(c)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("wrong current %d", res.StatusCode)
+	}
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/password", strings.NewReader(`{"current":"correct-password","next":"short"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(c)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("short %d", res.StatusCode)
+	}
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/password", strings.NewReader(`{"current":"correct-password","next":"a-new-password-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(c)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("change %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/api/status", nil)
+	req.AddCookie(c)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("kept session %d", res.StatusCode)
+	}
+	res.Body.Close()
+
+	old, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"correct-password"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old password %d", old.StatusCode)
+	}
+	old.Body.Close()
+	next, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"a-new-password-1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.StatusCode != http.StatusOK {
+		t.Fatalf("new password %d", next.StatusCode)
+	}
+	next.Body.Close()
+}
+
 func TestPauseRoundTrip(t *testing.T) {
 	d, _ := newDaemon(t)
 	if err := d.SetPause(context.Background(), true); err != nil {

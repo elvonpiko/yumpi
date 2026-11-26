@@ -43,7 +43,7 @@
     <div class="head">
       <p class="kicker">Dashboard</p>
       <h1>Sign in</h1>
-      <p>Use the password that was printed when YumPi was installed.</p>
+      <p>Use the dashboard password.</p>
       <form id="login-form" class="stack">
         <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
         <div><button class="btn" type="submit">Continue</button></div>
@@ -191,6 +191,18 @@
           <label class="field"><span>Password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="At least 8 characters"></label>
           <div><button class="btn" type="submit">Save guest Wi-Fi</button></div>
           <p class="err" id="guest-err" role="alert"></p>
+        </form>
+      </div>
+      <div class="dhcp">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="copy">This password signs in to YumPi. It does not change the Wi-Fi password.</p>
+        </div>
+        <form id="password-form" class="stack">
+          <label class="field"><span>Current password</span><input name="current" type="password" autocomplete="current-password" required></label>
+          <label class="field"><span>New password</span><input name="next" type="password" minlength="12" maxlength="72" autocomplete="new-password" required></label>
+          <div><button class="btn" type="submit">Change password</button></div>
+          <p class="err" id="password-err" role="alert"></p>
         </form>
       </div>
     </div>
