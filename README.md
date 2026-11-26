@@ -31,13 +31,24 @@ The dashboard is on the Pi at `https://<pi>:8443`. If the tunnel drops, YumPi br
 
 ## Install
 
-`install.sh` sets up a Raspberry Pi OS or Debian machine that already has ethernet and a working internet connection. Copy this repository onto the Pi, then:
+The image is [`ghcr.io/elvonpiko/yumpi:v0.1.0`](https://github.com/elvonpiko/yumpi/pkgs/container/yumpi). `latest` tracks the newest release. The image is built for a 64-bit Raspberry Pi.
+
+On Raspberry Pi OS or Debian, with ethernet and a working internet connection, copy this repository onto the Pi and run:
 
 ```sh
 sudo ./install.sh
 ```
 
-The script installs Docker and Mullvad when they are missing, builds the image, and starts the container. It finds the wired address and gateway, suggests a Wi-Fi subnet that does not overlap them, and asks you to confirm. It also asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`.
+The script installs Docker and Mullvad when they are missing, pulls the image, and starts the container. It finds the wired address and gateway, suggests a Wi-Fi subnet that does not overlap them, and asks you to confirm. It also asks for a Wi-Fi name and two passwords, or generates them and prints them once. A second run keeps `/etc/yumpi/config.toml`.
+
+To move a Pi that is already running onto this release:
+
+```sh
+docker pull ghcr.io/elvonpiko/yumpi:v0.1.0
+docker compose up -d --force-recreate --no-build
+```
+
+Run that from the directory that holds `compose.yml`. The container keeps `/etc/yumpi` and `/var/lib/yumpi`, so the Wi-Fi password, dashboard login, and device choices stay.
 
 After it finishes:
 
@@ -58,9 +69,10 @@ These variables skip the prompts:
 
 ```sh
 go test ./...
+docker compose build
 ```
 
-`config.example.toml` is the shape of the file the installer writes. Real copies stay on the Pi, mode `0600`.
+`docker compose build` makes a local image from this repository. `config.example.toml` is the shape of the file the installer writes. Real copies stay on the Pi, mode `0600`.
 
 ## Remove
 

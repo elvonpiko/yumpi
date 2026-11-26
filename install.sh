@@ -5,9 +5,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
+IMAGE="${YUMPI_IMAGE:-ghcr.io/elvonpiko/yumpi:v0.1.0}"
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo --preserve-env=YUMPI_ADMIN_PASSWORD,YUMPI_WIFI_PASSPHRASE,YUMPI_SSID,YUMPI_COUNTRY,YUMPI_CHANNEL,YUMPI_WIFI_IF,YUMPI_WIFI_CIDR,YUMPI_WIFI_DHCP_START,YUMPI_WIFI_DHCP_END,YUMPI_LAN_IF,YUMPI_LAN_CIDR,YUMPI_LAN_DHCP_START,YUMPI_LAN_DHCP_END,YUMPI_UPSTREAM \
+  exec sudo --preserve-env=YUMPI_IMAGE,YUMPI_ADMIN_PASSWORD,YUMPI_WIFI_PASSPHRASE,YUMPI_SSID,YUMPI_COUNTRY,YUMPI_CHANNEL,YUMPI_WIFI_IF,YUMPI_WIFI_CIDR,YUMPI_WIFI_DHCP_START,YUMPI_WIFI_DHCP_END,YUMPI_LAN_IF,YUMPI_LAN_CIDR,YUMPI_LAN_DHCP_START,YUMPI_LAN_DHCP_END,YUMPI_UPSTREAM \
     "$0" "$@"
 fi
 
@@ -26,17 +27,8 @@ pull_image() {
   die "could not pull ${image}"
 }
 
-ensure_image() {
-  local image="$1"
-  if docker image inspect "$image" >/dev/null 2>&1; then
-    log "${image} is already on this machine"
-    return 0
-  fi
-  pull_image "$image"
-}
-
 # NetworkManager rewrites resolv.conf with the upstream DHCP servers.
-# Mullvad rejects those queries, and docker build copies this file in.
+# Mullvad rejects those queries, and image pulls use this resolver.
 pin_mullvad_dns() {
   ip link show wg0-mullvad >/dev/null 2>&1 || return 0
   if [[ -L /etc/resolv.conf ]]; then
@@ -164,19 +156,12 @@ chmod 700 /etc/yumpi /var/lib/yumpi
 chmod 750 /run/yumpi
 printf 'd /etc/yumpi 0700 root root -\nd /var/lib/yumpi 0700 root root -\nd /run/yumpi 0750 root root -\n' > /etc/tmpfiles.d/yumpi.conf
 
-log "Pulling base images"
+log "Pulling ${IMAGE}"
 pin_mullvad_dns
-# dockerd remembers the resolver it saw at startup. NetworkManager can
-# change that file afterwards, so restart once the Mullvad resolver is in place.
+# dockerd remembers the resolver it saw at startup. Restart once Mullvad's
+# resolver is in place so the registry lookup succeeds.
 systemctl restart docker
-# BuildKit resolves registry DNS in its own namespace, which Mullvad rejects.
-# The daemon itself can pull, and the legacy builder then reuses those images.
-ensure_image golang:1.27-bookworm
-ensure_image debian:trixie-slim
-log "Building the container before touching the running network"
-# The classic builder reuses local images. BuildKit's own resolver is
-# rejected by Mullvad, so keep it off for this build.
-DOCKER_BUILDKIT=0 docker build --network=host -t yumpi:local "$ROOT"
+pull_image "$IMAGE"
 
 ip_in_cidr() {
   if command -v python3 >/dev/null 2>&1; then
@@ -310,7 +295,7 @@ if [[ ! -f /etc/yumpi/config.toml ]]; then
     -e YUMPI_ADMIN_PASSWORD -e YUMPI_WIFI_PASSPHRASE \
     -v /etc/yumpi:/etc/yumpi \
     --entrypoint /usr/local/bin/yumpi \
-    yumpi:local init-config \
+    "$IMAGE" init-config \
       -path /etc/yumpi/config.toml \
       -model "$model" \
       -ssid "$YUMPI_SSID" \

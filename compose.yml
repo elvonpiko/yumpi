@@ -1,9 +1,9 @@
 services:
   yumpi:
+    image: ghcr.io/elvonpiko/yumpi:v0.1.0
     build:
       context: .
       network: host
-    image: yumpi:local
     container_name: yumpi
     network_mode: host
     cap_add:
