@@ -11,19 +11,20 @@ import (
 
 // Input is everything the ruleset is allowed to depend on.
 type Input struct {
-	WiFiIface  string
-	LANIface   string
-	VPNIface   string
-	TunnelDNS  netip.Addr
-	DirectDNS  netip.Addr
-	WiFiNet    netip.Prefix
-	LANNet     netip.Prefix
-	Bypass     []netip.Addr
-	VPNUp      bool
-	GuestIface string
-	GuestGW    netip.Addr
-	GuestNet   netip.Prefix
-	GuestOn    bool
+	WiFiIface      string
+	LANIface       string
+	VPNIface       string
+	TunnelDNS      netip.Addr
+	DirectDNS      netip.Addr
+	WiFiNet        netip.Prefix
+	LANNet         netip.Prefix
+	Bypass         []netip.Addr
+	VPNUp          bool
+	BlockWhenDown  bool
+	GuestIface     string
+	GuestGW        netip.Addr
+	GuestNet       netip.Prefix
+	GuestOn        bool
 }
 
 var ifaceRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,14}$`)
@@ -48,6 +49,9 @@ func Render(in Input) (string, error) {
 		return "", fmt.Errorf("dns addresses must be ipv4")
 	}
 	bypass := uniqueAddrs(in.Bypass)
+	// Fail-open sends every client out the normal route. Pausing keeps that
+	// path for direct devices only, and the forward rules drop the rest.
+	failOpen := !in.VPNUp && !in.BlockWhenDown
 
 	var b strings.Builder
 	b.WriteString("add table inet yumpi\n")
@@ -69,7 +73,7 @@ func Render(in Input) (string, error) {
 
 	b.WriteString("add chain inet yumpi dstnat { type nat hook prerouting priority dstnat ; policy accept ; }\n")
 	who := "@bypass"
-	if !in.VPNUp {
+	if failOpen {
 		who = "@clients"
 	}
 	fmt.Fprintf(&b, "add rule inet yumpi dstnat ip saddr %s ip daddr %s udp dport 53 dnat ip to %s:53\n", who, in.TunnelDNS, in.DirectDNS)
@@ -79,13 +83,14 @@ func Render(in Input) (string, error) {
 	// The chain cannot be named "mark": that word is an nftables keyword.
 	b.WriteString("add chain inet yumpi exclude { type filter hook prerouting priority -90 ; policy accept ; }\n")
 	markWho := "@bypass"
-	if !in.VPNUp {
+	if failOpen {
 		markWho = "@clients"
 	}
 	fmt.Fprintf(&b, "add rule inet yumpi exclude ip saddr %s ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } ct mark set 0x00000f41 meta mark set 0x6d6f6c65\n", markWho)
-	if in.VPNUp {
+	if !failOpen {
 		// Mullvad keeps applying a mark for the life of a connection. Clear it
-		// once that address is no longer on the direct path.
+		// once that address is no longer on the direct path, including when a
+		// paused device still carries a mark from before the tunnel dropped.
 		b.WriteString("add rule inet yumpi exclude ip saddr @clients ip saddr != @bypass ct mark set 0 meta mark set 0\n")
 	}
 	if in.GuestOn {
@@ -102,9 +107,11 @@ func Render(in Input) (string, error) {
 	b.WriteString("add chain inet yumpi srcnat { type nat hook postrouting priority srcnat ; policy accept ; }\n")
 	if in.VPNUp && in.VPNIface != "" {
 		fmt.Fprintf(&b, "add rule inet yumpi srcnat oifname %q meta nfproto ipv4 masquerade\n", in.VPNIface)
-		b.WriteString("add rule inet yumpi srcnat ip saddr @bypass oifname " + quote(in.LANIface) + " meta nfproto ipv4 masquerade\n")
-	} else {
+	}
+	if failOpen {
 		b.WriteString("add rule inet yumpi srcnat ip saddr @clients oifname " + quote(in.LANIface) + " meta nfproto ipv4 masquerade\n")
+	} else {
+		b.WriteString("add rule inet yumpi srcnat ip saddr @bypass oifname " + quote(in.LANIface) + " meta nfproto ipv4 masquerade\n")
 	}
 	return b.String(), nil
 }
@@ -159,13 +166,31 @@ func ForwardRules(in Input) [][]string {
 			[]string{"-i", in.VPNIface, "-o", in.WiFiIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 			[]string{"-i", in.VPNIface, "-o", in.LANIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 			[]string{"-i", in.LANIface, "-o", in.LANIface, "-m", "connmark", "--mark", "0x00000f41", "-j", "ACCEPT"},
+			[]string{"-i", in.WiFiIface, "-o", in.LANIface, "-j", "ACCEPT"},
+			[]string{"-i", in.LANIface, "-o", in.WiFiIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 		)
-	} else {
+		return rules
+	}
+	if in.BlockWhenDown {
+		// Local addresses stay reachable. Internet for a direct device is the
+		// marked flow. Everything else from a client is dropped here so a later
+		// Docker accept cannot keep an old connection alive.
+		lan := in.LANNet.String()
+		wifi := in.WiFiNet.String()
 		rules = append(rules,
-			[]string{"-i", in.LANIface, "-o", in.LANIface, "-j", "ACCEPT"},
+			[]string{"-i", in.WiFiIface, "-o", in.LANIface, "-d", lan, "-j", "ACCEPT"},
+			[]string{"-i", in.LANIface, "-o", in.WiFiIface, "-d", wifi, "-s", lan, "-j", "ACCEPT"},
+			[]string{"-i", in.WiFiIface, "-o", in.LANIface, "-m", "connmark", "--mark", "0x00000f41", "-j", "ACCEPT"},
+			[]string{"-i", in.LANIface, "-o", in.LANIface, "-m", "connmark", "--mark", "0x00000f41", "-j", "ACCEPT"},
+			[]string{"-i", in.LANIface, "-o", in.WiFiIface, "-m", "connmark", "--mark", "0x00000f41", "-j", "ACCEPT"},
+			[]string{"-i", in.WiFiIface, "-j", "DROP"},
+			[]string{"-i", in.LANIface, "-o", in.LANIface, "-j", "DROP"},
+			[]string{"-i", in.LANIface, "-o", in.WiFiIface, "-j", "DROP"},
 		)
+		return rules
 	}
 	rules = append(rules,
+		[]string{"-i", in.LANIface, "-o", in.LANIface, "-j", "ACCEPT"},
 		[]string{"-i", in.WiFiIface, "-o", in.LANIface, "-j", "ACCEPT"},
 		[]string{"-i", in.LANIface, "-o", in.WiFiIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
 	)

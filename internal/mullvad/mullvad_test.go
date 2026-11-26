@@ -1,6 +1,10 @@
 package mullvad
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 const connected = `{"state":"connected","details":{"location":{"ipv4":"146.70.165.29","hostname":"us-nyc-wg-501","city":"New York, NY","country":"USA"}}}`
 
@@ -15,6 +19,16 @@ func TestParseStatus(t *testing.T) {
 	down, err := ParseStatus(`{"state":"disconnected"}`)
 	if err != nil || down.Connected {
 		t.Fatalf("%+v %v", down, err)
+	}
+}
+
+func TestCityJSONUsesDashboardNames(t *testing.T) {
+	b, err := json.Marshal(Country{Name: "Sweden", Code: "se", Cities: []City{{Name: "Gothenburg", Code: "got"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"name":"Gothenburg"`) || !strings.Contains(string(b), `"code":"got"`) {
+		t.Fatal(string(b))
 	}
 }
 

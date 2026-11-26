@@ -26,6 +26,9 @@ type State struct {
 	DHCPDisabled   bool          `json:"dhcp_disabled"`
 	PinnedLocation string        `json:"pinned_location"`
 	GuestEnabled   bool          `json:"guest_enabled"`
+	// BlockWhenDown pauses internet for devices set to Mullvad while the tunnel is down.
+	// Devices set to direct, and traffic inside the house, keep working.
+	BlockWhenDown bool `json:"block_when_down"`
 }
 
 var pinnedRE = regexp.MustCompile(`^[a-z]{2}(?: [a-z]{3})?$`)

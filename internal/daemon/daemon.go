@@ -45,13 +45,14 @@ type Status struct {
 }
 
 type MullvadView struct {
-	Connected  bool   `json:"connected"`
-	State      string `json:"state"`
-	Relay      string `json:"relay"`
-	Location   string `json:"location"`
-	ExitIP     string `json:"exit_ip"`
-	Obfuscated bool   `json:"obfuscated"`
-	Pinned     string `json:"pinned"`
+	Connected     bool   `json:"connected"`
+	State         string `json:"state"`
+	Relay         string `json:"relay"`
+	Location      string `json:"location"`
+	ExitIP        string `json:"exit_ip"`
+	Obfuscated    bool   `json:"obfuscated"`
+	Pinned        string `json:"pinned"`
+	BlockWhenDown bool   `json:"block_when_down"`
 }
 
 type WiFiView struct {
@@ -220,7 +221,7 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 		Model: model, Uptime: devices.FormatUptime(time.Since(d.started)),
 		DHCPEnabled: !st.DHCPDisabled,
 		Online:      snap.Online, LeasesUsed: snap.LeasesUsed, PoolSize: snap.PoolSize, Expiring: snap.Expiring,
-		Mullvad: MullvadView{Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP, Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation},
+		Mullvad: MullvadView{Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP, Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation, BlockWhenDown: st.BlockWhenDown},
 		WiFi:    WiFiView{SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Country: cfg.WiFi.Country, Address: cfg.WiFi.Address},
 		Guest:   GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
 		Pools: PoolsView{
@@ -357,6 +358,18 @@ func (d *Daemon) SetDHCP(ctx context.Context, enabled bool) error {
 		return err
 	}
 	d.super.SetDHCP(enabled)
+	return nil
+}
+
+// SetPause blocks internet for Mullvad devices while the tunnel is down.
+func (d *Daemon) SetPause(ctx context.Context, enabled bool) error {
+	if err := d.store.Update(func(st *state.State) error {
+		st.BlockWhenDown = enabled
+		return nil
+	}); err != nil {
+		return err
+	}
+	d.kick()
 	return nil
 }
 
@@ -574,15 +587,16 @@ func firewallInput(cfg config.Config, st state.State, up bool, leases string) (f
 		}
 	}
 	in := firewall.Input{
-		WiFiIface: wifi.Iface,
-		LANIface:  lan.Iface,
-		VPNIface:  cfg.Mullvad.Interface,
-		TunnelDNS: cfg.TunnelDNS(),
-		DirectDNS: cfg.DirectDNS(),
-		WiFiNet:   wifi.Prefix,
-		LANNet:    lan.Prefix,
-		Bypass:    bypass,
-		VPNUp:     up,
+		WiFiIface:      wifi.Iface,
+		LANIface:       lan.Iface,
+		VPNIface:       cfg.Mullvad.Interface,
+		TunnelDNS:      cfg.TunnelDNS(),
+		DirectDNS:      cfg.DirectDNS(),
+		WiFiNet:        wifi.Prefix,
+		LANNet:         lan.Prefix,
+		Bypass:         bypass,
+		VPNUp:          up,
+		BlockWhenDown:  st.BlockWhenDown,
 	}
 	if st.GuestEnabled && cfg.Guest.Passphrase != "" {
 		if gn, err := cfg.GuestNet(); err == nil {

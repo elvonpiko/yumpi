@@ -134,6 +134,30 @@ func TestLoginCookieAndDevicePolicy(t *testing.T) {
 	}
 }
 
+func TestPauseRoundTrip(t *testing.T) {
+	d, _ := newDaemon(t)
+	if err := d.SetPause(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	st, err := d.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Mullvad.BlockWhenDown || !st.Mullvad.Connected {
+		t.Fatalf("%+v", st.Mullvad)
+	}
+	if err := d.SetPause(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	st, err = d.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mullvad.BlockWhenDown {
+		t.Fatal("pause stayed on")
+	}
+}
+
 func newDaemon(t *testing.T) (*daemon.Daemon, *recording) {
 	t.Helper()
 	dir := t.TempDir()

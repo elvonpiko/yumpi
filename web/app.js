@@ -49,8 +49,13 @@ function flash(msg) {
   n.textContent = msg || "";
 }
 
+function holding() {
+  return !!(data && data.mullvad && data.mullvad.block_when_down && !data.mullvad.connected);
+}
+
 function dotClass(d) {
   if (d.blocked) return "r";
+  if (holding() && d.vpn && d.online) return "r";
   if (d.online) return "";
   if (d.lease && d.lease !== "—" && d.lease !== "Expired") return "w";
   return "o";
@@ -58,6 +63,7 @@ function dotClass(d) {
 
 function statusLabel(d) {
   if (d.blocked) return "Blocked";
+  if (holding() && d.vpn && d.online) return "Paused";
   if (d.online) return "Online";
   if (d.lease && d.lease !== "—" && d.lease !== "Expired") return "Idle";
   return "Offline";
@@ -173,13 +179,15 @@ function setText(id, value) {
 
 function render() {
   const live = $("live");
+  const paused = holding();
   live.querySelector("i").className = data.mullvad.connected ? "" : "dot r";
-  live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : "Direct";
+  live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : (paused ? "Paused" : "Direct");
   const online = (data.devices || []).filter((d) => d.online);
   const via = online.filter((d) => d.vpn).length;
   setText("stat-online", String(data.online));
   setText("stat-mullvad", String(via));
-  setText("stat-direct", String(online.length - via));
+  setText("stat-mullvad-label", paused ? "Paused" : "Through Mullvad");
+  setText("stat-direct", String(online.filter((d) => !d.vpn).length));
   const pct = data.pool_size ? Math.round((data.leases_used / data.pool_size) * 100) : 0;
   setText("pool-label", data.dhcp_enabled ? "Address pool · " + pct + "% used" : "Address pool · off");
   $("pool-bar").style.width = (data.dhcp_enabled ? pct : 0) + "%";
@@ -191,7 +199,7 @@ function render() {
   setText("lan-gw", l.gateway);
   setText("dns", data.dns.tunnel);
   setText("lease", w.lease);
-  setText("vpn-state", data.mullvad.connected ? "Connected" : "Disconnected");
+  setText("vpn-state", data.mullvad.connected ? "Connected" : (paused ? "Paused" : "Disconnected"));
   setText("vpn-relay", data.mullvad.relay);
   setText("vpn-loc", data.mullvad.location);
   setText("vpn-ip", data.mullvad.exit_ip);
@@ -199,7 +207,11 @@ function render() {
   setText("ov-loc", data.mullvad.location);
   setText("ov-exit", data.mullvad.exit_ip);
   setText("ov-leases", data.leases_used + " of " + data.pool_size);
-  setText("vpn-pin", data.mullvad.pinned || "Any city");
+  setText("vpn-pin", data.mullvad.pinned || "Any country");
+  const note = $("pause-note");
+  if (note) note.hidden = !(data.mullvad && data.mullvad.block_when_down);
+  const pause = $("pause-sw");
+  if (pause && document.activeElement !== pause) pause.checked = !!(data.mullvad && data.mullvad.block_when_down);
   const gsw = $("guest-sw");
   const gssid = $("guest-ssid");
   if (gsw && document.activeElement !== gsw) gsw.checked = !!(data.guest && data.guest.enabled);
@@ -221,10 +233,13 @@ function fillCities() {
   const code = $("country").value;
   const city = $("city");
   city.replaceChildren();
-  city.append(new Option("Best in country", ""));
+  city.append(new Option("Any city", ""));
   const found = relays.find((c) => c.code === code);
   if (!found) return;
-  for (const c of found.cities || []) city.append(new Option(c.name, c.code));
+  for (const c of found.cities || []) {
+    if (!c.name || !c.code) continue;
+    city.append(new Option(c.name, c.code));
+  }
 }
 
 async function loadRelays() {
@@ -338,6 +353,18 @@ $("vpn-btn").addEventListener("click", async () => {
   }
 });
 
+$("pause-sw").addEventListener("change", async () => {
+  const on = $("pause-sw").checked;
+  try {
+    await api("/api/pause", { enabled: on });
+    flash(on ? "Internet pauses when Mullvad drops" : "Internet stays up when Mullvad drops");
+    await refresh();
+  } catch (err) {
+    $("pause-sw").checked = !on;
+    flash(err.message);
+  }
+});
+
 $("country").addEventListener("change", fillCities);
 
 $("loc-form").addEventListener("submit", async (ev) => {
@@ -356,7 +383,7 @@ $("unpin-btn").addEventListener("click", async () => {
   $("vpn-err").textContent = "";
   try {
     await api("/api/mullvad", { action: "unpin" });
-    flash("Using any city");
+    flash("Using any country");
     setTimeout(() => refresh().catch(() => {}), 1200);
   } catch (err) {
     $("vpn-err").textContent = err.message;

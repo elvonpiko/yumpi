@@ -92,6 +92,40 @@ func TestGuestCannotLeaveTheTunnel(t *testing.T) {
 	}
 }
 
+func TestPauseKeepsDirectAndDropsTheRest(t *testing.T) {
+	in := sampleInput(false)
+	in.BlockWhenDown = true
+	script, err := Render(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(script, "ip saddr @clients ip daddr 10.64.0.1") || strings.Contains(script, "ip saddr @clients oifname") {
+		t.Fatal(script)
+	}
+	if !strings.Contains(script, "ip saddr @bypass ip daddr 10.64.0.1") || !strings.Contains(script, "ct mark set 0") {
+		t.Fatal(script)
+	}
+	rules := joinRules(ForwardRules(in))
+	for _, want := range []string{
+		"-i wlan0 -o eth0 -d 10.23.45.0/24 -j ACCEPT",
+		"-i wlan0 -o eth0 -m connmark --mark 0x00000f41 -j ACCEPT",
+		"-i wlan0 -j DROP",
+		"-i eth0 -o eth0 -j DROP",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Fatalf("missing %s\n%s", want, rules)
+		}
+	}
+	if strings.Contains(rules, "-i wlan0 -o eth0 -j ACCEPT") || strings.Contains(rules, "-i eth0 -o eth0 -j ACCEPT") {
+		t.Fatal(rules)
+	}
+	in.GuestOn = true
+	in.GuestIface = "wlan0_0"
+	if strings.Contains(joinRules(ForwardRules(in)), "wlan0_0 -o eth0") {
+		t.Fatal("guest can reach the home router while paused")
+	}
+}
+
 func TestForwardRulesCoverWiredBypass(t *testing.T) {
 	all := joinRules(ForwardRules(sampleInput(true)))
 	if !strings.Contains(all, "-i eth0 -o eth0 -m connmark --mark 0x00000f41 -j ACCEPT") {

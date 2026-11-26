@@ -32,6 +32,7 @@ type Service interface {
 	AddReservation(ctx context.Context, mac, ip, name string) error
 	DeleteReservation(ctx context.Context, mac string) error
 	SetDHCP(ctx context.Context, enabled bool) error
+	SetPause(ctx context.Context, enabled bool) error
 	MullvadAction(ctx context.Context, action, location string) error
 	SetWiFi(ctx context.Context, ssid, passphrase string) error
 	SetGuest(ctx context.Context, enabled bool, ssid, passphrase string) error
@@ -59,6 +60,7 @@ func New(svc Service, assets fs.FS, log *slog.Logger) http.Handler {
 	mux.Handle("POST /api/reservation", s.auth(http.HandlerFunc(s.addReservation)))
 	mux.Handle("POST /api/reservation/delete", s.auth(http.HandlerFunc(s.deleteReservation)))
 	mux.Handle("POST /api/dhcp", s.auth(http.HandlerFunc(s.dhcp)))
+	mux.Handle("POST /api/pause", s.auth(http.HandlerFunc(s.pause)))
 	mux.Handle("POST /api/mullvad", s.auth(http.HandlerFunc(s.mullvad)))
 	mux.Handle("POST /api/wifi", s.auth(http.HandlerFunc(s.wifi)))
 	mux.Handle("POST /api/guest", s.auth(http.HandlerFunc(s.guest)))
@@ -183,6 +185,17 @@ func (s *server) dhcp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeCall(w, r, s.svc.SetDHCP(r.Context(), body.Enabled))
+}
+
+func (s *server) pause(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(w, r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "Missing pause setting.")
+		return
+	}
+	s.writeCall(w, r, s.svc.SetPause(r.Context(), body.Enabled))
 }
 
 func (s *server) mullvad(w http.ResponseWriter, r *http.Request) {

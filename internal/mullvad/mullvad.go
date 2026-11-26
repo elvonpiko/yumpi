@@ -22,10 +22,10 @@ type Status struct {
 	Obfuscated bool
 }
 
-// City is one Mullvad city code.
+// City is one Mullvad city code. The JSON names match the dashboard.
 type City struct {
-	Name string
-	Code string
+	Name string `json:"name"`
+	Code string `json:"code"`
 }
 
 // Country is one Mullvad country and its cities.

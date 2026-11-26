@@ -78,7 +78,7 @@
       </div>
       <div class="stats">
         <div><b id="stat-online">—</b><small>Devices online</small></div>
-        <div><b id="stat-mullvad">—</b><small>Through Mullvad</small></div>
+        <div><b id="stat-mullvad">—</b><small id="stat-mullvad-label">Through Mullvad</small></div>
         <div><b id="stat-direct">—</b><small>Direct</small></div>
       </div>
       <dl class="kv now">
@@ -87,6 +87,7 @@
         <dt>Exit</dt><dd id="ov-exit">—</dd>
         <dt>Leases</dt><dd id="ov-leases">—</dd>
       </dl>
+      <p class="copy" id="pause-note" hidden>Internet pauses if Mullvad drops.</p>
     </div>
 
     <div id="page-devices" class="page" hidden>
@@ -145,8 +146,12 @@
           <h2>Tunnel</h2>
           <p class="copy">Connect and Disconnect start or stop the tunnel. They keep the country already pinned. To change country, use the list on the right.</p>
           <button class="btn" type="button" id="vpn-btn">Connect</button>
-          <button class="btn o" type="button" id="unpin-btn">Any city</button>
+          <button class="btn o" type="button" id="unpin-btn">Any country</button>
           <p class="err" id="vpn-err" role="alert"></p>
+          <div class="stack">
+            <label class="check"><input class="sw" id="pause-sw" type="checkbox"> Block internet when Mullvad is down</label>
+            <p class="copy" id="pause-copy">Devices set to Mullvad lose the internet until the tunnel is back. Devices set to Direct keep your normal connection. This dashboard and other devices on your network stay reachable.</p>
+          </div>
         </div>
         <div>
           <dl class="kv">

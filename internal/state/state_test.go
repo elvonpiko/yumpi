@@ -16,6 +16,7 @@ func TestUpdatePersistsAndNormalizes(t *testing.T) {
 		st.BypassIPs = []string{"10.0.0.2", "10.0.0.2", "10.0.0.1"}
 		st.BlockedMACs = []string{"AA:BB:CC:DD:EE:FF"}
 		st.Reservations = []Reservation{{MAC: "aa:bb:cc:dd:ee:ff", IP: "10.0.0.9", Name: "tv"}}
+		st.BlockWhenDown = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -35,7 +36,7 @@ func TestUpdatePersistsAndNormalizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Get().Reservations[0].Name != "tv" {
+	if again.Get().Reservations[0].Name != "tv" || !again.Get().BlockWhenDown {
 		t.Fatalf("%+v", again.Get())
 	}
 }
