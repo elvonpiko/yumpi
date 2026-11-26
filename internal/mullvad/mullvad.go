@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,13 @@ func (c *Client) Connect(ctx context.Context) error {
 
 func (c *Client) Disconnect(ctx context.Context) error {
 	_, err := c.run(ctx, "disconnect")
+	return err
+}
+
+// Reconnect asks Mullvad to build the tunnel again.
+// A disconnected tunnel is connected. A stuck one is replaced.
+func (c *Client) Reconnect(ctx context.Context) error {
+	_, err := c.run(ctx, "reconnect")
 	return err
 }
 
@@ -186,6 +194,52 @@ func ParseRelays(raw string) []Country {
 		}
 	}
 	return out
+}
+
+// freshHandshake is how long a WireGuard handshake may be before the path is dead.
+// Mullvad keepalives are much shorter than this.
+const freshHandshake = 90 * time.Second
+
+// ParseHandshake reads `wg show <iface> latest-handshakes` and returns the age of the newest peer.
+// A timestamp of 0 means that peer has never completed a handshake.
+func ParseHandshake(raw string, now time.Time) (time.Duration, bool) {
+	var newest int64
+	found := false
+	for _, line := range strings.Split(raw, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		ts, err := strconv.ParseInt(f[len(f)-1], 10, 64)
+		if err != nil || ts <= 0 {
+			continue
+		}
+		if !found || ts > newest {
+			newest = ts
+			found = true
+		}
+	}
+	if !found {
+		return 0, false
+	}
+	age := now.Sub(time.Unix(newest, 0))
+	if age < 0 {
+		return 0, true
+	}
+	return age, true
+}
+
+// HandshakeFresh reports a handshake new enough that the tunnel can pass traffic.
+func HandshakeFresh(raw string, now time.Time) bool {
+	age, ok := ParseHandshake(raw, now)
+	return ok && age <= freshHandshake
+}
+
+// HandshakeStale reports a completed handshake that is too old to trust.
+// A missing handshake, or a timestamp of 0, is not stale: the session may still be starting.
+func HandshakeStale(raw string, now time.Time) bool {
+	age, ok := ParseHandshake(raw, now)
+	return ok && age > freshHandshake
 }
 
 // ObfuscatedText reports Mullvad anti-censorship wrappers, which are often slower.

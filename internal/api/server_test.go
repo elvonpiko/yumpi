@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -281,6 +283,8 @@ func (recording) Run(_ context.Context, name string, _ ...string) (string, error
 	switch name {
 	case "mullvad":
 		return `{"state":"connected","details":{"location":{"ipv4":"146.70.165.29","hostname":"us-nyc-wg-501","city":"New York, NY","country":"USA"}}}`, nil
+	case "wg":
+		return "peer " + fmt.Sprint(time.Now().Unix()) + "\n", nil
 	case "iw":
 		return "Station aa:bb:cc:dd:ee:01 (on wlan0)\n", nil
 	case "ip":

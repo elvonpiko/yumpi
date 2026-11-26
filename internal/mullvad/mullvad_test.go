@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 const connected = `{"state":"connected","details":{"location":{"ipv4":"146.70.165.29","hostname":"us-nyc-wg-501","city":"New York, NY","country":"USA"}}}`
@@ -29,6 +30,24 @@ func TestCityJSONUsesDashboardNames(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"name":"Gothenburg"`) || !strings.Contains(string(b), `"code":"got"`) {
 		t.Fatal(string(b))
+	}
+}
+
+func TestHandshakeFreshUsesTheNewestPeer(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	raw := "oldpeer 1699999000\nnewpeer " + "1700000000" + "\nnever 0\n"
+	age, ok := ParseHandshake(raw, now)
+	if !ok || age != 0 {
+		t.Fatalf("age %v ok %v", age, ok)
+	}
+	if !HandshakeFresh(raw, now) {
+		t.Fatal("fresh")
+	}
+	if HandshakeFresh("peer 1699999000\n", now) {
+		t.Fatal("stale")
+	}
+	if HandshakeFresh("peer 0\n", now) || HandshakeStale("peer 0\n", now) {
+		t.Fatal("never is not a stale session")
 	}
 }
 

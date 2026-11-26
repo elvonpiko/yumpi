@@ -9,7 +9,7 @@ RUN printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/99retries \
     && for i in 1 2 3 4 5 6 7 8; do \
       apt-get update \
       && apt-get install -y --no-install-recommends \
-          ca-certificates curl hostapd dnsmasq nftables iptables iproute2 iw rfkill \
+          ca-certificates curl hostapd dnsmasq nftables iptables iproute2 iw rfkill conntrack wireguard-tools \
       && rm -rf /var/lib/apt/lists/* \
       && exit 0; \
       echo "package install failed, retry ${i}" >&2; \

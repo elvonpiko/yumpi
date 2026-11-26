@@ -12,20 +12,20 @@ The control plane is one Go program in a container. The Pi keeps Docker, the Mul
 
 ## Dashboard
 
-The dashboard is on the Pi at `https://<pi>:8443`. These pictures use example devices.
+The dashboard is on the Pi at `https://<pi>:8443`. If the tunnel drops, YumPi brings it back. Disconnect is the one choice that stays off. These pictures use example devices.
 
-![Overview: who is online, and that internet pauses if Mullvad drops](docs/overview.png)
+![Overview: who is online, and that a dropped tunnel comes back](docs/overview.png)
 
 ![Devices: Wi-Fi or Ethernet, and a switch for the direct path](docs/devices.png)
 
-![Settings: the tunnel, Wi-Fi, guest access, and the dashboard password](docs/settings.png)
+![Settings: the tunnel comes back unless you disconnect](docs/settings.png)
 
 ## What it does
 
 - The installer reads the wired network already on the Pi and asks before it saves it. Wi-Fi uses a separate subnet that does not overlap that network. Wired clients that lease from the Pi use the Pi as their gateway.
 - Lookups go to Mullvad DNS (`10.64.0.1`), so they follow the tunnel.
 - A device set to direct keeps that choice by its MAC, and its DNS goes to `1.1.1.1`.
-- If the tunnel is down, clients use the direct path. A setting can instead pause devices that are set to Mullvad until the tunnel is back. A device set to direct keeps that path.
+- If the tunnel drops, YumPi brings it back. Disconnect is the one choice that stays off. While it is down, clients use the direct path, or pause if that setting is on. A device set to direct keeps that path.
 - Guest Wi-Fi can be turned on later. Guests stay on Mullvad and cannot reach the LAN or the dashboard.
 - The dashboard is HTTPS only, at `https://<pi>:8443`. Trust the Pi’s certificate once. Do not forward that port from the internet. The sign-in password can be changed in Settings.
 

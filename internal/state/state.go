@@ -29,6 +29,9 @@ type State struct {
 	// BlockWhenDown pauses internet for devices set to Mullvad while the tunnel is down.
 	// Devices set to direct, and traffic inside the house, keep working.
 	BlockWhenDown bool `json:"block_when_down"`
+	// ManualDisconnect is set only when the dashboard Disconnect button is used.
+	// Any other drop is brought back.
+	ManualDisconnect bool `json:"manual_disconnect"`
 }
 
 var pinnedRE = regexp.MustCompile(`^[a-z]{2}(?: [a-z]{3})?$`)

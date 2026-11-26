@@ -54,6 +54,7 @@ type MullvadView struct {
 	Obfuscated    bool   `json:"obfuscated"`
 	Pinned        string `json:"pinned"`
 	BlockWhenDown bool   `json:"block_when_down"`
+	Reconnecting  bool   `json:"reconnecting"`
 }
 
 type WiFiView struct {
@@ -103,6 +104,12 @@ type Daemon struct {
 	cfg config.Config
 
 	trigger chan struct{}
+
+	// Recovery is touched only by the reconcile loop.
+	seen    bool
+	wasUp   bool
+	lastTry time.Time
+	tries   int
 }
 
 func New(cfg config.Config, path string, store *state.Store, passwords *auth.Manager, log *slog.Logger, run system.Runner) *Daemon {
@@ -134,7 +141,8 @@ func (d *Daemon) Run(ctx context.Context) {
 	d.super.SetDHCP(!d.store.Get().DHCPDisabled)
 	d.super.Start(ctx)
 	go d.keepGuestAddress(ctx)
-	if pin := d.store.Get().PinnedLocation; pin != "" {
+	boot := d.store.Get()
+	if pin := boot.PinnedLocation; pin != "" && !boot.ManualDisconnect {
 		go func() {
 			if err := d.mv.SetLocation(ctx, pin); err != nil {
 				d.log.Warn("pinned location", "err", err)
@@ -186,7 +194,7 @@ func (d *Daemon) Relays(ctx context.Context) ([]mullvad.Country, error) {
 func (d *Daemon) Status(ctx context.Context) (Status, error) {
 	cfg := d.config()
 	st := d.store.Get()
-	vpn, _ := d.tunnel(ctx)
+	vpn, _ := d.observe(ctx)
 	wifi, err := cfg.WiFiNet()
 	if err != nil {
 		return Status{}, err
@@ -222,7 +230,11 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 		Model: model, Uptime: devices.FormatUptime(time.Since(d.started)),
 		DHCPEnabled: !st.DHCPDisabled,
 		Online:      snap.Online, LeasesUsed: snap.LeasesUsed, PoolSize: snap.PoolSize, Expiring: snap.Expiring,
-		Mullvad: MullvadView{Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP, Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation, BlockWhenDown: st.BlockWhenDown},
+		Mullvad: MullvadView{
+			Connected: vpn.Connected, State: vpn.State, Relay: vpn.Relay, Location: vpn.Location, ExitIP: vpn.ExitIP,
+			Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation, BlockWhenDown: st.BlockWhenDown,
+			Reconnecting: !st.ManualDisconnect && !vpn.Connected,
+		},
 		WiFi:    WiFiView{SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Country: cfg.WiFi.Country, Address: cfg.WiFi.Address},
 		Guest:   GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
 		Pools: PoolsView{
@@ -403,10 +415,17 @@ func (d *Daemon) SetPause(ctx context.Context, enabled bool) error {
 func (d *Daemon) MullvadAction(ctx context.Context, action, location string) error {
 	switch action {
 	case "connect":
+		if err := d.setManual(false); err != nil {
+			return err
+		}
+		d.markTried(time.Now())
 		if err := d.mv.Connect(ctx); err != nil {
 			return err
 		}
 	case "disconnect":
+		if err := d.setManual(true); err != nil {
+			return err
+		}
 		if err := d.mv.Disconnect(ctx); err != nil {
 			return err
 		}
@@ -416,10 +435,12 @@ func (d *Daemon) MullvadAction(ctx context.Context, action, location string) err
 		}
 		if err := d.store.Update(func(st *state.State) error {
 			st.PinnedLocation = strings.TrimSpace(strings.ToLower(location))
+			st.ManualDisconnect = false
 			return nil
 		}); err != nil {
 			return err
 		}
+		d.markTried(time.Now())
 	case "unpin":
 		if err := d.mv.ClearLocation(ctx); err != nil {
 			return err
@@ -557,7 +578,29 @@ func (d *Daemon) writeLocked() error {
 func (d *Daemon) reconcile(ctx context.Context) {
 	cfg := d.config()
 	st := d.store.Get()
-	vpn, _ := d.tunnel(ctx)
+	vpn, retry := d.observe(ctx)
+	up := vpn.Connected
+	now := time.Now()
+	// The pinned location is applied in the background at startup. Reconnect
+	// during that window cancels the handshake before it can finish.
+	if time.Since(d.started) < startupGrace {
+		retry = false
+	}
+	if !st.ManualDisconnect && retry && d.reconnectDue(now) {
+		d.log.Info("bringing the tunnel back")
+		if err := d.mv.Reconnect(ctx); err != nil {
+			d.log.Warn("reconnect", "err", err)
+		}
+		d.markTried(now)
+	}
+	if up {
+		d.clearTries()
+	}
+	if d.seen && up && !d.wasUp {
+		d.flushClientFlows(ctx, cfg)
+	}
+	d.seen = true
+	d.wasUp = up
 	rawLeases, _ := os.ReadFile(cfg.Paths.Leases)
 	in, err := firewallInput(cfg, st, vpn.Connected, string(rawLeases))
 	if err != nil {
@@ -569,16 +612,109 @@ func (d *Daemon) reconcile(ctx context.Context) {
 	}
 }
 
-func (d *Daemon) tunnel(ctx context.Context) (mullvad.Status, error) {
+// startupGrace lets the first connection finish its handshake. A timestamp of 0
+// means WireGuard has not completed one yet, which is normal while connecting,
+// especially with quantum resistance. Reconnect during that wait aborts it.
+const startupGrace = 20 * time.Second
+
+// observe separates a usable tunnel from one that should be rebuilt.
+// A handshake of 0, or no wg output, is not evidence that the tunnel is dead.
+// Only a completed handshake older than the fresh window is.
+func (d *Daemon) observe(ctx context.Context) (mullvad.Status, bool) {
 	st, err := d.mv.Status(ctx)
-	if err == nil {
-		return st, nil
+	if err != nil {
+		d.log.Warn("mullvad status", "err", err)
+		if st.State == "" {
+			st.State = "unknown"
+		}
 	}
-	d.log.Warn("mullvad status", "err", err)
-	if _, linkErr := d.run.Run(ctx, "ip", "link", "show", "dev", d.config().Mullvad.Interface); linkErr == nil {
-		return mullvad.Status{State: "unknown", Connected: true}, err
+	raw, wgErr := d.run.Run(ctx, "wg", "show", d.config().Mullvad.Interface, "latest-handshakes")
+	stale := false
+	fresh := false
+	if wgErr == nil {
+		stale = mullvad.HandshakeStale(raw, time.Now())
+		fresh = mullvad.HandshakeFresh(raw, time.Now())
 	}
-	return mullvad.Status{State: "unknown"}, err
+	switch {
+	case err == nil && st.Connected && !stale:
+		st.Connected = true
+		return st, false
+	case err == nil && st.State == "connecting":
+		st.Connected = false
+		return st, false
+	case stale:
+		st.Connected = false
+		return st, true
+	case err == nil && (st.State == "disconnected" || st.State == "error" || st.State == "disconnecting"):
+		st.Connected = false
+		return st, true
+	case fresh:
+		st.Connected = true
+		return st, false
+	default:
+		st.Connected = false
+		return st, false
+	}
+}
+
+func (d *Daemon) setManual(v bool) error {
+	return d.store.Update(func(st *state.State) error {
+		st.ManualDisconnect = v
+		return nil
+	})
+}
+
+func (d *Daemon) reconnectDue(now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastTry.IsZero() {
+		return true
+	}
+	return now.Sub(d.lastTry) >= retryAfter(d.tries)
+}
+
+func (d *Daemon) markTried(now time.Time) {
+	d.mu.Lock()
+	d.lastTry = now
+	d.tries++
+	d.mu.Unlock()
+}
+
+func (d *Daemon) clearTries() {
+	d.mu.Lock()
+	d.lastTry = time.Time{}
+	d.tries = 0
+	d.mu.Unlock()
+}
+
+// retryAfter waits longer after each failed attempt, up to five minutes.
+func retryAfter(tries int) time.Duration {
+	if tries < 1 {
+		return 0
+	}
+	wait := 15 * time.Second
+	for i := 1; i < tries; i++ {
+		if wait >= 5*time.Minute {
+			return 5 * time.Minute
+		}
+		wait *= 2
+	}
+	if wait > 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return wait
+}
+
+func (d *Daemon) flushClientFlows(ctx context.Context, cfg config.Config) {
+	for _, cidr := range []string{cfg.WiFi.Address, cfg.LAN.Address} {
+		p, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			continue
+		}
+		if _, err := d.run.Run(ctx, "conntrack", "-D", "-s", p.Masked().String()); err != nil {
+			d.log.Debug("conntrack", "err", err, "net", p.Masked().String())
+		}
+	}
 }
 
 func firewallInput(cfg config.Config, st state.State, up bool, leases string) (firewall.Input, error) {

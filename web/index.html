@@ -74,7 +74,7 @@
       <div class="head">
         <p class="kicker">Overview</p>
         <h1>This network</h1>
-        <p>Who is online, and whether their traffic goes through Mullvad.</p>
+        <p>Who is online, and whether their traffic goes through Mullvad. If the tunnel drops, YumPi brings it back.</p>
       </div>
       <div class="stats">
         <div><b id="stat-online">—</b><small>Devices online</small></div>
@@ -145,6 +145,7 @@
         <div>
           <h2>Tunnel</h2>
           <p class="copy">Connect and Disconnect start or stop the tunnel. They keep the country already pinned. To change country, use the list on the right.</p>
+          <p class="copy">If the tunnel drops, YumPi brings it back. Disconnect is the one choice that stays off.</p>
           <button class="btn" type="button" id="vpn-btn">Connect</button>
           <button class="btn o" type="button" id="unpin-btn">Any country</button>
           <p class="err" id="vpn-err" role="alert"></p>

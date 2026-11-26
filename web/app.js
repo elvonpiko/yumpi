@@ -53,6 +53,10 @@ function holding() {
   return !!(data && data.mullvad && data.mullvad.block_when_down && !data.mullvad.connected);
 }
 
+function recovering() {
+  return !!(data && data.mullvad && data.mullvad.reconnecting);
+}
+
 function dotClass(d) {
   if (d.blocked) return "r";
   if (holding() && d.vpn && d.online) return "r";
@@ -180,13 +184,17 @@ function setText(id, value) {
 function render() {
   const live = $("live");
   const paused = holding();
-  live.querySelector("i").className = data.mullvad.connected ? "" : "dot r";
-  live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : (paused ? "Paused" : "Direct");
+  const back = recovering();
+  live.querySelector("i").className = data.mullvad.connected ? "" : (back && !paused ? "dot w" : "dot r");
+  live.querySelector("span").textContent = data.mullvad.connected ? "Protected" : (paused ? "Paused" : (back ? "Reconnecting" : "Direct"));
   const online = (data.devices || []).filter((d) => d.online);
   const via = online.filter((d) => d.vpn).length;
+  let viaLabel = "Through Mullvad";
+  if (paused) viaLabel = "Paused";
+  else if (back) viaLabel = "Reconnecting";
   setText("stat-online", String(data.online));
   setText("stat-mullvad", String(via));
-  setText("stat-mullvad-label", paused ? "Paused" : "Through Mullvad");
+  setText("stat-mullvad-label", viaLabel);
   setText("stat-direct", String(online.filter((d) => !d.vpn).length));
   const pct = data.pool_size ? Math.round((data.leases_used / data.pool_size) * 100) : 0;
   setText("pool-label", data.dhcp_enabled ? "Address pool · " + pct + "% used" : "Address pool · off");
@@ -199,11 +207,11 @@ function render() {
   setText("lan-gw", l.gateway);
   setText("dns", data.dns.tunnel);
   setText("lease", w.lease);
-  setText("vpn-state", data.mullvad.connected ? "Connected" : (paused ? "Paused" : "Disconnected"));
+  setText("vpn-state", data.mullvad.connected ? "Connected" : (back ? "Reconnecting" : "Disconnected"));
   setText("vpn-relay", data.mullvad.relay);
   setText("vpn-loc", data.mullvad.location);
   setText("vpn-ip", data.mullvad.exit_ip);
-  setText("ov-relay", data.mullvad.connected ? data.mullvad.relay : "Not connected");
+  setText("ov-relay", data.mullvad.connected ? data.mullvad.relay : (back ? "Reconnecting" : "Not connected"));
   setText("ov-loc", data.mullvad.location);
   setText("ov-exit", data.mullvad.exit_ip);
   setText("ov-leases", data.leases_used + " of " + data.pool_size);
