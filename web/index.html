@@ -173,9 +173,11 @@
         <div>
           <h2>Wi-Fi</h2>
           <p class="copy" id="ap-copy">5 GHz from this Pi. A new password reconnects everyone.</p>
+          <p class="copy">This Pi has one radio, so the network can be on 5 GHz or 2.4 GHz. The guest network uses the same band. Applying restarts Wi-Fi and every device reconnects.</p>
         </div>
         <form id="wifi-form" class="stack">
           <label class="field"><span>Network name</span><input id="ssid" name="ssid" required maxlength="32" autocomplete="off"></label>
+          <label class="field"><span>Band</span><select id="band" name="band"><option value="5">5 GHz</option><option value="2.4">2.4 GHz</option></select></label>
           <label class="field"><span>New password</span><input name="passphrase" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep the current one"></label>
           <div><button class="btn" type="submit">Apply</button></div>
           <p class="err" id="wifi-err" role="alert"></p>

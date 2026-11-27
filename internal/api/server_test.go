@@ -52,7 +52,7 @@ func TestLoginCookieAndDevicePolicy(t *testing.T) {
 		if page.StatusCode != 200 || len(body) == 0 {
 			t.Fatalf("%s -> %d (%d bytes)", path, page.StatusCode, len(body))
 		}
-		if path == "/" && !strings.Contains(string(body), "This network") {
+		if path == "/" && (!strings.Contains(string(body), "This network") || !strings.Contains(string(body), "2.4 GHz")) {
 			t.Fatal("dashboard markup missing")
 		}
 	}
@@ -211,6 +211,75 @@ func TestPasswordChangeKeepsSession(t *testing.T) {
 		t.Fatalf("new password %d", next.StatusCode)
 	}
 	next.Body.Close()
+}
+
+func TestWiFiBandRoundTrip(t *testing.T) {
+	d, _ := newDaemon(t)
+	srv := httptest.NewServer(New(d, web.FS, nil))
+	defer srv.Close()
+
+	login, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"correct-password"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := login.Cookies()[0]
+	login.Body.Close()
+
+	post := func(body string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/wifi", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(c)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	status := func() daemon.Status {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.AddCookie(c)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var st daemon.Status
+		if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	if st := status(); st.WiFi.Band != "5" || st.WiFi.Channel != 36 {
+		t.Fatalf("%+v", st.WiFi)
+	}
+	res := post(`{"ssid":"YumPi","passphrase":"","band":"2.4"}`)
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("2.4 %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	if st := status(); st.WiFi.Band != "2.4" || st.WiFi.Channel != 6 {
+		t.Fatalf("%+v", st.WiFi)
+	}
+	res = post(`{"ssid":"YumPi","band":"nope"}`)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad band %d", res.StatusCode)
+	}
+	res.Body.Close()
+	res = post(`{"ssid":"YumPi","band":"5"}`)
+	res.Body.Close()
+	if st := status(); st.WiFi.Band != "5" || st.WiFi.Channel != 36 {
+		t.Fatalf("%+v", st.WiFi)
+	}
 }
 
 func TestPauseRoundTrip(t *testing.T) {

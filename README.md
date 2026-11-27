@@ -28,10 +28,11 @@ The dashboard is on the Pi at `https://<pi>:8443`. If the tunnel drops, YumPi br
 - If the tunnel drops, YumPi brings it back. Disconnect is the one choice that stays off. While it is down, clients use the direct path, or pause if that setting is on. A device set to direct keeps that path.
 - Guest Wi-Fi can be turned on later. Guests stay on Mullvad and cannot reach the LAN or the dashboard.
 - The dashboard is HTTPS only, at `https://<pi>:8443`. Trust the Pi’s certificate once. Do not forward that port from the internet. The sign-in password can be changed in Settings.
+- Settings can put Wi-Fi on 5 GHz or 2.4 GHz. The Pi has one radio, so the guest network follows and every Wi-Fi device reconnects. A new install stays on 5 GHz.
 
 ## Install
 
-The image is [`ghcr.io/elvonpiko/yumpi:v0.1.0`](https://github.com/elvonpiko/yumpi/pkgs/container/yumpi). `latest` tracks the newest release. The image is built for a 64-bit Raspberry Pi.
+The image is [`ghcr.io/elvonpiko/yumpi:v0.2.0`](https://github.com/elvonpiko/yumpi/pkgs/container/yumpi). `latest` tracks the newest release. The image is built for a 64-bit Raspberry Pi.
 
 On Raspberry Pi OS or Debian, with ethernet and a working internet connection, copy this repository onto the Pi and run:
 
@@ -44,7 +45,7 @@ The script installs Docker and Mullvad when they are missing, pulls the image, a
 To move a Pi that is already running onto this release:
 
 ```sh
-docker pull ghcr.io/elvonpiko/yumpi:v0.1.0
+docker pull ghcr.io/elvonpiko/yumpi:v0.2.0
 docker compose up -d --force-recreate --no-build
 ```
 

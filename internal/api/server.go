@@ -35,7 +35,7 @@ type Service interface {
 	SetPause(ctx context.Context, enabled bool) error
 	SetPassword(ctx context.Context, remote, current, next, keep string) error
 	MullvadAction(ctx context.Context, action, location string) error
-	SetWiFi(ctx context.Context, ssid, passphrase string) error
+	SetWiFi(ctx context.Context, ssid, passphrase, band string) error
 	SetGuest(ctx context.Context, enabled bool, ssid, passphrase string) error
 	Relays(ctx context.Context) ([]mullvad.Country, error)
 }
@@ -250,12 +250,13 @@ func (s *server) wifi(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SSID       string `json:"ssid"`
 		Passphrase string `json:"passphrase"`
+		Band       string `json:"band"`
 	}
 	if err := readJSON(w, r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "Missing Wi-Fi settings.")
 		return
 	}
-	s.writeCall(w, r, s.svc.SetWiFi(r.Context(), body.SSID, body.Passphrase))
+	s.writeCall(w, r, s.svc.SetWiFi(r.Context(), body.SSID, body.Passphrase, body.Band))
 }
 
 func (s *server) writeCall(w http.ResponseWriter, r *http.Request, err error) {

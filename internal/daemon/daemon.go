@@ -60,6 +60,7 @@ type MullvadView struct {
 type WiFiView struct {
 	SSID    string `json:"ssid"`
 	Channel int    `json:"channel"`
+	Band    string `json:"band"`
 	Country string `json:"country"`
 	Address string `json:"address"`
 }
@@ -235,7 +236,10 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 			Obfuscated: vpn.Obfuscated, Pinned: st.PinnedLocation, BlockWhenDown: st.BlockWhenDown,
 			Reconnecting: !st.ManualDisconnect && !vpn.Connected,
 		},
-		WiFi:    WiFiView{SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Country: cfg.WiFi.Country, Address: cfg.WiFi.Address},
+		WiFi: WiFiView{
+			SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Band: cfg.WiFi.Band(),
+			Country: cfg.WiFi.Country, Address: cfg.WiFi.Address,
+		},
 		Guest:   GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
 		Pools: PoolsView{
 			WiFi: PoolView{Start: wifi.DHCPStart.String(), End: wifi.DHCPEnd.String(), Gateway: wifi.Gateway.String(), Lease: wifi.Lease, Size: config.PoolSize(wifi.DHCPStart, wifi.DHCPEnd), Used: snap.WiFiUsed},
@@ -458,7 +462,7 @@ func (d *Daemon) MullvadAction(ctx context.Context, action, location string) err
 	return nil
 }
 
-func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase string) error {
+func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase, band string) error {
 	d.mu.Lock()
 	cfg := d.cfg
 	ssid = strings.TrimSpace(ssid)
@@ -468,8 +472,14 @@ func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase string) error {
 	if passphrase == "" {
 		passphrase = cfg.WiFi.Passphrase
 	}
+	channel, err := cfg.WiFi.ChannelForBand(band)
+	if err != nil {
+		d.mu.Unlock()
+		return invalid("Choose 5 GHz or 2.4 GHz.")
+	}
 	cfg.WiFi.SSID = ssid
 	cfg.WiFi.Passphrase = passphrase
+	cfg.WiFi.Channel = channel
 	if err := cfg.Validate(); err != nil {
 		d.mu.Unlock()
 		return invalid("SSID must be 1–32 characters and the password 8–63.")

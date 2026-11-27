@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -144,6 +145,57 @@ func TestConnectingAndANewHandshakeAreLeftAlone(t *testing.T) {
 	if st.Connected || !retry {
 		t.Fatalf("stale connected %v retry %v", st.Connected, retry)
 	}
+}
+
+func TestSetWiFiBandRestartsTheAccessPointOnThatChannel(t *testing.T) {
+	d, _ := testDaemon(t)
+	if err := d.SetWiFi(context.Background(), "", "", "2.4"); err != nil {
+		t.Fatal(err)
+	}
+	wifi := d.config().WiFi
+	if wifi.Channel != 6 || wifi.Band() != "2.4" || wifi.Passphrase != "correct horse" || wifi.SSID != "YumPi" {
+		t.Fatalf("%+v", wifi)
+	}
+	conf := readHostapd(t, d)
+	if !strings.Contains(conf, "hw_mode=g\n") || !strings.Contains(conf, "channel=6\n") || strings.Contains(conf, "correct horse") {
+		t.Fatal(conf)
+	}
+
+	d.mu.Lock()
+	d.cfg.WiFi.Channel = 11
+	d.mu.Unlock()
+	if err := d.SetWiFi(context.Background(), "", "", "2.4"); err != nil {
+		t.Fatal(err)
+	}
+	if d.config().WiFi.Channel != 11 {
+		t.Fatal(d.config().WiFi.Channel)
+	}
+
+	if err := d.SetWiFi(context.Background(), "", "", "5"); err != nil {
+		t.Fatal(err)
+	}
+	if d.config().WiFi.Channel != 36 || d.config().WiFi.Band() != "5" {
+		t.Fatalf("%+v", d.config().WiFi)
+	}
+	conf = readHostapd(t, d)
+	if !strings.Contains(conf, "hw_mode=a\n") || !strings.Contains(conf, "channel=36\n") || !strings.Contains(conf, "ieee80211ac=1\n") {
+		t.Fatal(conf)
+	}
+	if err := d.SetWiFi(context.Background(), "", "", "6"); err == nil {
+		t.Fatal("accepted a bad band")
+	}
+	if d.config().WiFi.Channel != 36 {
+		t.Fatal(d.config().WiFi.Channel)
+	}
+}
+
+func readHostapd(t *testing.T, d *Daemon) string {
+	t.Helper()
+	b, err := os.ReadFile(d.config().Paths.Run + "/hostapd.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestStartupGraceDoesNotAbortTheFirstHandshake(t *testing.T) {

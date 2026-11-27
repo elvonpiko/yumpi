@@ -86,3 +86,38 @@ func TestSaveIsPrivate(t *testing.T) {
 		t.Fatalf("%+v", loaded)
 	}
 }
+
+func TestBandChoiceKeepsAnExistingChannel(t *testing.T) {
+	wifi := testConfig().WiFi
+	if wifi.Band() != "5" {
+		t.Fatal(wifi.Band())
+	}
+	got, err := wifi.ChannelForBand("5")
+	if err != nil || got != 36 {
+		t.Fatalf("%d %v", got, err)
+	}
+	wifi.Channel = 149
+	got, err = wifi.ChannelForBand("5")
+	if err != nil || got != 149 {
+		t.Fatalf("kept %d %v", got, err)
+	}
+	got, err = wifi.ChannelForBand("2.4")
+	if err != nil || got != Channel24 || wifi.Band() != "5" {
+		t.Fatalf("switch %d %v", got, err)
+	}
+	wifi.Channel = 11
+	if wifi.Band() != "2.4" {
+		t.Fatal(wifi.Band())
+	}
+	got, err = wifi.ChannelForBand("2.4")
+	if err != nil || got != 11 {
+		t.Fatalf("kept 2.4 %d %v", got, err)
+	}
+	got, err = wifi.ChannelForBand("5")
+	if err != nil || got != Channel5 {
+		t.Fatalf("back %d %v", got, err)
+	}
+	if _, err := wifi.ChannelForBand("6"); err == nil {
+		t.Fatal("accepted a bad band")
+	}
+}

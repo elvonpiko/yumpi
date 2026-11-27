@@ -25,7 +25,7 @@ func WPA2PSK(ssid, passphrase string) string {
 func HostapdConf(wifi config.WiFi, guest config.Guest, guestOn bool, denyPath, ctrlDir string) string {
 	mode := "a"
 	ac := "1"
-	if wifi.Channel <= 14 {
+	if wifi.Band() == "2.4" {
 		mode = "g"
 		ac = "0"
 	}

@@ -43,6 +43,42 @@ type WiFi struct {
 	Lease      string `toml:"lease"`
 }
 
+const (
+	// Channel5 and Channel24 are what Settings writes when the band changes.
+	// Staying on the current band keeps a channel that was chosen at install.
+	Channel5  = 36
+	Channel24 = 6
+)
+
+// Band is "5" or "2.4" for the channel this radio is using.
+func (w WiFi) Band() string {
+	if w.Channel <= 14 {
+		return "2.4"
+	}
+	return "5"
+}
+
+// ChannelForBand maps a Settings choice onto a channel.
+// An empty band leaves the channel alone.
+func (w WiFi) ChannelForBand(band string) (int, error) {
+	switch band {
+	case "":
+		return w.Channel, nil
+	case "5":
+		if w.Band() == "2.4" {
+			return Channel5, nil
+		}
+		return w.Channel, nil
+	case "2.4":
+		if w.Band() == "5" {
+			return Channel24, nil
+		}
+		return w.Channel, nil
+	default:
+		return 0, errors.New("choose 5 GHz or 2.4 GHz")
+	}
+}
+
 // Guest is the visitor access point. It stays off until a passphrase is saved
 // and the dashboard turns it on.
 type Guest struct {

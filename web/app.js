@@ -227,7 +227,11 @@ function render() {
   $("vpn-btn").textContent = data.mullvad.connected ? "Disconnect" : "Connect";
   const ssid = $("ssid");
   if (document.activeElement !== ssid) ssid.value = data.wifi.ssid;
-  $("ap-copy").textContent = data.wifi.ssid + " · channel " + data.wifi.channel + " · " + data.wifi.country + ". A new password reconnects everyone.";
+  const band = $("band");
+  const bandValue = data.wifi.band || (data.wifi.channel <= 14 ? "2.4" : "5");
+  if (band && document.activeElement !== band) band.value = bandValue;
+  const bandLabel = bandValue === "2.4" ? "2.4 GHz" : "5 GHz";
+  $("ap-copy").textContent = data.wifi.ssid + " · " + bandLabel + " · channel " + data.wifi.channel + " · " + data.wifi.country + ". Switching band or password reconnects everyone.";
   $("foot").textContent = "YumPi · " + data.model + " · up " + data.uptime;
   if (!busy) renderDevices();
 }
@@ -430,9 +434,10 @@ $("wifi-form").addEventListener("submit", async (ev) => {
   $("wifi-err").textContent = "";
   const f = new FormData(ev.target);
   try {
-    await api("/api/wifi", { ssid: f.get("ssid"), passphrase: f.get("passphrase") });
+    const band = f.get("band");
+    await api("/api/wifi", { ssid: f.get("ssid"), passphrase: f.get("passphrase"), band });
     ev.target.querySelector("[name=passphrase]").value = "";
-    flash("Wi-Fi updated");
+    flash(band === "2.4" ? "Wi-Fi is on 2.4 GHz" : "Wi-Fi is on 5 GHz");
     await refresh();
   } catch (err) {
     $("wifi-err").textContent = err.message;
