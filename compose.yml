@@ -1,6 +1,6 @@
 services:
   yumpi:
-    image: ghcr.io/elvonpiko/yumpi:v0.2.0
+    image: ghcr.io/elvonpiko/yumpi:v0.2.1
     build:
       context: .
       network: host

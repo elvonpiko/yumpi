@@ -240,7 +240,7 @@ func (d *Daemon) Status(ctx context.Context) (Status, error) {
 			SSID: cfg.WiFi.SSID, Channel: cfg.WiFi.Channel, Band: cfg.WiFi.Band(),
 			Country: cfg.WiFi.Country, Address: cfg.WiFi.Address,
 		},
-		Guest:   GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
+		Guest: GuestView{Enabled: st.GuestEnabled && cfg.Guest.Passphrase != "", SSID: cfg.GuestWithDefaults().SSID, Address: cfg.GuestWithDefaults().Address},
 		Pools: PoolsView{
 			WiFi: PoolView{Start: wifi.DHCPStart.String(), End: wifi.DHCPEnd.String(), Gateway: wifi.Gateway.String(), Lease: wifi.Lease, Size: config.PoolSize(wifi.DHCPStart, wifi.DHCPEnd), Used: snap.WiFiUsed},
 			LAN:  PoolView{Start: lan.DHCPStart.String(), End: lan.DHCPEnd.String(), Gateway: lan.Gateway.String(), Lease: lan.Lease, Size: config.PoolSize(lan.DHCPStart, lan.DHCPEnd), Used: snap.LANUsed},
@@ -477,6 +477,10 @@ func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase, band string) err
 		d.mu.Unlock()
 		return invalid("Choose 5 GHz or 2.4 GHz.")
 	}
+	if ssid == cfg.WiFi.SSID && passphrase == cfg.WiFi.Passphrase && channel == cfg.WiFi.Channel {
+		d.mu.Unlock()
+		return nil
+	}
 	cfg.WiFi.SSID = ssid
 	cfg.WiFi.Passphrase = passphrase
 	cfg.WiFi.Channel = channel
@@ -490,6 +494,7 @@ func (d *Daemon) SetWiFi(ctx context.Context, ssid, passphrase, band string) err
 	}
 	d.cfg = cfg
 	d.mu.Unlock()
+	d.log.Info("wifi", "ssid", cfg.WiFi.SSID, "channel", cfg.WiFi.Channel, "band", cfg.WiFi.Band())
 	if err := d.writeLocked(); err != nil {
 		return err
 	}
@@ -760,16 +765,16 @@ func firewallInput(cfg config.Config, st state.State, up bool, leases string) (f
 		}
 	}
 	in := firewall.Input{
-		WiFiIface:      wifi.Iface,
-		LANIface:       lan.Iface,
-		VPNIface:       cfg.Mullvad.Interface,
-		TunnelDNS:      cfg.TunnelDNS(),
-		DirectDNS:      cfg.DirectDNS(),
-		WiFiNet:        wifi.Prefix,
-		LANNet:         lan.Prefix,
-		Bypass:         bypass,
-		VPNUp:          up,
-		BlockWhenDown:  st.BlockWhenDown,
+		WiFiIface:     wifi.Iface,
+		LANIface:      lan.Iface,
+		VPNIface:      cfg.Mullvad.Interface,
+		TunnelDNS:     cfg.TunnelDNS(),
+		DirectDNS:     cfg.DirectDNS(),
+		WiFiNet:       wifi.Prefix,
+		LANNet:        lan.Prefix,
+		Bypass:        bypass,
+		VPNUp:         up,
+		BlockWhenDown: st.BlockWhenDown,
 	}
 	if st.GuestEnabled && cfg.Guest.Passphrase != "" {
 		if gn, err := cfg.GuestNet(); err == nil {

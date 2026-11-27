@@ -181,7 +181,24 @@ function setText(id, value) {
   if (n.textContent !== next) n.textContent = next;
 }
 
+// syncControl copies a server value into a field unless the person has edited it.
+// A refresh every few seconds must not put the band back after they chose the other one.
+function syncControl(el, value) {
+  if (!el) return;
+  const current = el.dataset.server;
+  if (document.activeElement !== el && (current == null || el.value === current)) el.value = value;
+  el.dataset.server = value;
+}
+
 function render() {
+  if (data && data.wifi) {
+    const bandValue = data.wifi.band || (data.wifi.channel <= 14 ? "2.4" : "5");
+    const bandLabel = bandValue === "2.4" ? "2.4 GHz" : "5 GHz";
+    const copy = $("ap-copy");
+    if (copy) copy.textContent = data.wifi.ssid + " is on " + bandLabel + ", channel " + data.wifi.channel + ".";
+    syncControl($("ssid"), data.wifi.ssid);
+    syncControl($("band"), bandValue);
+  }
   const live = $("live");
   const paused = holding();
   const back = recovering();
@@ -225,13 +242,6 @@ function render() {
   if (gsw && document.activeElement !== gsw) gsw.checked = !!(data.guest && data.guest.enabled);
   if (gssid && document.activeElement !== gssid && data.guest) gssid.value = data.guest.ssid || "";
   $("vpn-btn").textContent = data.mullvad.connected ? "Disconnect" : "Connect";
-  const ssid = $("ssid");
-  if (document.activeElement !== ssid) ssid.value = data.wifi.ssid;
-  const band = $("band");
-  const bandValue = data.wifi.band || (data.wifi.channel <= 14 ? "2.4" : "5");
-  if (band && document.activeElement !== band) band.value = bandValue;
-  const bandLabel = bandValue === "2.4" ? "2.4 GHz" : "5 GHz";
-  $("ap-copy").textContent = data.wifi.ssid + " · " + bandLabel + " · channel " + data.wifi.channel + " · " + data.wifi.country + ". Switching band or password reconnects everyone.";
   $("foot").textContent = "YumPi · " + data.model + " · up " + data.uptime;
   if (!busy) renderDevices();
 }
@@ -434,10 +444,12 @@ $("wifi-form").addEventListener("submit", async (ev) => {
   $("wifi-err").textContent = "";
   const f = new FormData(ev.target);
   try {
-    const band = f.get("band");
+    const band = $("band").value;
+    const moving = data && data.wifi && band !== (data.wifi.band || (data.wifi.channel <= 14 ? "2.4" : "5"));
+    if (moving) flash(band === "2.4" ? "Switching to 2.4 GHz. Wi-Fi will drop, then reconnect." : "Switching to 5 GHz. Wi-Fi will drop, then reconnect.");
     await api("/api/wifi", { ssid: f.get("ssid"), passphrase: f.get("passphrase"), band });
     ev.target.querySelector("[name=passphrase]").value = "";
-    flash(band === "2.4" ? "Wi-Fi is on 2.4 GHz" : "Wi-Fi is on 5 GHz");
+    if (!moving) flash(band === "2.4" ? "Wi-Fi is already on 2.4 GHz" : "Wi-Fi is already on 5 GHz");
     await refresh();
   } catch (err) {
     $("wifi-err").textContent = err.message;

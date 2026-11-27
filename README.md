@@ -32,7 +32,7 @@ The dashboard is on the Pi at `https://<pi>:8443`. If the tunnel drops, YumPi br
 
 ## Install
 
-The image is [`ghcr.io/elvonpiko/yumpi:v0.2.0`](https://github.com/elvonpiko/yumpi/pkgs/container/yumpi). `latest` tracks the newest release. The image is built for a 64-bit Raspberry Pi.
+The image is [`ghcr.io/elvonpiko/yumpi:v0.2.1`](https://github.com/elvonpiko/yumpi/pkgs/container/yumpi). `latest` tracks the newest release. The image is built for a 64-bit Raspberry Pi.
 
 On Raspberry Pi OS or Debian, with ethernet and a working internet connection, copy this repository onto the Pi and run:
 
@@ -45,7 +45,7 @@ The script installs Docker and Mullvad when they are missing, pulls the image, a
 To move a Pi that is already running onto this release:
 
 ```sh
-docker pull ghcr.io/elvonpiko/yumpi:v0.2.0
+docker pull ghcr.io/elvonpiko/yumpi:v0.2.1
 docker compose up -d --force-recreate --no-build
 ```
 

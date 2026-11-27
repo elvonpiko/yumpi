@@ -30,6 +30,14 @@ func (s *Supervisor) Start(ctx context.Context) {
 	s.ap.init("hostapd", s.Log, func() []string {
 		return []string{bin("hostapd"), filepath.Join(s.RunDir, "hostapd.conf")}
 	}, func() bool { return true })
+	// The Pi radio keeps the old channel until the link is down. hostapd then
+	// fails the first start after a band change and the access point never moves.
+	s.ap.before = func(ctx context.Context) {
+		if s.WiFi == "" || s.Run == nil {
+			return
+		}
+		_, _ = s.Run.Run(ctx, "ip", "link", "set", s.WiFi, "down")
+	}
 	s.dhcp.init("dnsmasq", s.Log, func() []string {
 		return []string{bin("dnsmasq"), "-k", "-C", filepath.Join(s.RunDir, "dnsmasq.conf"), "-x", filepath.Join(s.RunDir, "dnsmasq.pid"), "-u", "root"}
 	}, nil)
@@ -88,6 +96,7 @@ type proc struct {
 	name    string
 	log     *slog.Logger
 	argv    func() []string
+	before  func(ctx context.Context)
 	enabled func() bool
 	wakeCh  chan struct{}
 
@@ -160,6 +169,9 @@ func (p *proc) loop(ctx context.Context) {
 			case <-p.wakeCh:
 			}
 			continue
+		}
+		if p.before != nil {
+			p.before(ctx)
 		}
 		argv := p.argv()
 		cmd := exec.Command(argv[0], argv[1:]...)

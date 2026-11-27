@@ -147,6 +147,19 @@ func TestConnectingAndANewHandshakeAreLeftAlone(t *testing.T) {
 	}
 }
 
+func TestSetWiFiLeavesTheRadioAloneWhenNothingChanges(t *testing.T) {
+	d, _ := testDaemon(t)
+	if err := d.SetWiFi(context.Background(), "YumPi", "", "5"); err != nil {
+		t.Fatal(err)
+	}
+	if d.config().WiFi.Channel != 36 || d.config().WiFi.SSID != "YumPi" {
+		t.Fatalf("%+v", d.config().WiFi)
+	}
+	if _, err := os.Stat(d.config().Paths.Run + "/hostapd.conf"); !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func TestSetWiFiBandRestartsTheAccessPointOnThatChannel(t *testing.T) {
 	d, _ := testDaemon(t)
 	if err := d.SetWiFi(context.Background(), "", "", "2.4"); err != nil {
